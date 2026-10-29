@@ -1,0 +1,59 @@
+# 登录模块测试数据（数据驱动：改数据不碰代码）
+# 占位符由 data/__init__.py 加载时替换成 config.py 里的真实值：
+#   {user}=USERNAME  {pwd}=PASSWORD  {wrong_pwd}=WRONG_PASSWORD
+#   {not_exist}=NOT_EXIST_USER  {mid_user}=账号中间插一个空格
+# 换测试账号时只改 config.py，这里不用动
+# expect = 断言关键词：提示文案里必须出现它（实测结论，出处见 docs 待确认清单）
+
+# A. 前端校验类：空值被前端直接拦下，不发请求、不计失败次数，可放心反复跑
+front_validate:
+  - case_id: pwd-empty          # 密码为空
+    username: "{user}"
+    password: ""
+    expect: "密码"
+  - case_id: user-empty         # 账号为空
+    username: ""
+    password: "{pwd}"
+    expect: "账号"
+  - case_id: both-empty         # 账号密码都为空
+    username: ""
+    password: ""
+    expect: "账号"
+
+# B. 后端拒绝类：真实发请求、可能计入失败次数 → negative，默认不跑
+backend_reject:
+  - case_id: wrong-pwd          # 密码错误
+    username: "{user}"
+    password: "{wrong_pwd}"
+    expect: "账号或密码错误"
+  - case_id: user-not-exist     # 账号不存在
+    username: "{not_exist}"
+    password: "{pwd}"
+    expect: "账号或密码错误"
+  - case_id: both-spaces        # 全空格：DevTools 实测会发真实请求，走后端长度校验分支
+    username: "  "
+    password: "  "
+    expect: "长度不足"
+
+# C1. 前后空格：实测系统会 trim → 登录成功，无副作用（不校验文案，无需 expect）
+space_trim:
+  - case_id: space-prefix       # 前面有空格
+    username: " {user}"
+    password: "{pwd}"
+  - case_id: space-suffix       # 后面有空格
+    username: "{user} "
+    password: "{pwd}"
+  - case_id: space-both         # 前后都有
+    username: " {user} "
+    password: "{pwd}"
+
+# C2. 中间空格：不 trim → 登录失败并计失败次数 → negative
+space_reject:
+  - case_id: space-middle                 # 中间有空格
+    username: "{mid_user}"
+    password: "{pwd}"
+    expect: "账号或密码错误"
+  - case_id: space-middle-and-suffix      # 中间+后面
+    username: "{mid_user} "
+    password: "{pwd}"
+    expect: "账号或密码错误"

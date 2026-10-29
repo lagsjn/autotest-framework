@@ -1,0 +1,12 @@
+# 虚拟环境：体积大、平台相关，人人按 requirements.txt 自装
+.venv/
+# Python 与 pytest 缓存
+__pycache__/
+.pytest_cache/
+# IDE 个人配置
+.idea/
+# 运行产物：日志、失败截图、allure 数据
+log/
+allure-results/
+# 敏感信息：真值永不见天日（昨天学的！）
+.env

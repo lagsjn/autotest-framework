@@ -1,0 +1,38 @@
+"""
+全局配置：把"会变的东西"集中放这里
+敏感信息（系统地址/账号/密码）从 .env 文件读，代码里不落真值
+.env 已被 .gitignore 拉黑，永不进仓库 —— 别人拿到代码找你要 .env.example
+"""
+import os
+
+from dotenv import load_dotenv
+
+load_dotenv()  # 把项目根目录的 .env 加载进环境变量
+
+# ============ 敏感配置：只存在于 .env，缺失就直接报错（fail fast） ============
+BASE_URL = os.getenv("TEST_BASE_URL")
+USERNAME = os.getenv("TEST_USERNAME")
+PASSWORD = os.getenv("TEST_PASSWORD")
+if not all([BASE_URL, USERNAME, PASSWORD]):
+    raise RuntimeError(
+        "缺少敏感配置：请复制 .env.example 为 .env 并填入真实值（该文件不进 git）"
+    )
+
+LOGIN_URL = f"{BASE_URL}/login"
+
+# ============ 等待时间（秒） ============
+# 显式等待最多等多久。太小->网络一慢就误报失败；太大->失败用例卡很久
+TIMEOUT = 10
+
+# ============ 非敏感测试数据：留在代码里无妨 ============
+# 故意用来测"登录失败"的错误密码
+WRONG_PASSWORD = "wrong_pwd_000"
+# 故意用来测"账号不存在"的账号（系统里没注册过）
+NOT_EXIST_USER = "t_not_exist_9999"
+
+# ============ 调试开关 ============
+# True ：用例跑完不关浏览器（方便肉眼查页面），只适合调试单条用例
+# False：正常关闭（跑全量、跑 CI 必须用这个）
+# 为什么不能一直 True？detach 会让 Edge / msedgedriver 进程残留，
+# 用例一多就资源争抢，出现"某条 ERROR、重跑又好了"的偶发问题
+BROWSER_DEBUG = False

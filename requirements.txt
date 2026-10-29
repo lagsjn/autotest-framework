@@ -1,0 +1,9 @@
+# 依赖清单：别人拿到这个项目，执行 pip install -r requirements.txt 就能装出同样的环境
+# 这是项目能交付、能在 Jenkins 上跑起来的前提（不写=项目不可复现）
+# 版本写死（==）叫"依赖锁定"，避免新版本不兼容导致突然全挂
+selenium==4.51.0
+pytest==9.1.1
+# Allure 测试报告插件（生成 allure-results/）
+allure-pytest==2.16.2
+# 从 .env 文件读敏感配置（代码里不落真实账号密码）
+python-dotenv
