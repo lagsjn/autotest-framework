@@ -10,3 +10,6 @@ log/
 allure-results/
 # 敏感信息：真值永不见天日（昨天学的！）
 .env
+# 公司内部文档：操作手册原件与抽取文本，一律不进仓库
+docs/extracted/
+*.pdf

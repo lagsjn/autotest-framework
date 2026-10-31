@@ -1,3 +1,5 @@
+import re
+
 from selenium.webdriver.support.wait import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver import ActionChains
@@ -92,6 +94,22 @@ class BasePage:
 
     def open_url(self, url):
         self.driver.get(url)
+
+    def wait_url_matches(self, pattern, timeout=TIMEOUT):
+        """
+        等 URL 匹配某个正则模式（SPA 路由切换滞后于点击，必须等而不是抢跑）
+        匹配到返回当前 URL；等满 timeout 没等到返回 None（不抛异常，让用例自己 assert）
+        为什么不用 time.sleep？固定睡眠两头亏：页面快了你白等，页面慢了你照样挂；
+        智能等待是"一满足就提前返回"，又快又稳
+        """
+        rx = re.compile(pattern)
+        try:
+            WebDriverWait(self.driver, timeout).until(
+                lambda d: rx.search(d.current_url)
+            )
+        except TimeoutException:
+            return None
+        return self.driver.current_url
 
     # ============ 瞬时元素（toast）专用：埋点监听 ============
     # 轮询是"事后查岗"，1.5 秒就消失的提示很容易错过；
