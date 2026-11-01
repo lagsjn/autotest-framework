@@ -40,6 +40,7 @@ def _enter_course_detail(fresh_page):
 
 @allure.feature("课程模块")
 @allure.story("L3 页签只读巡礼")
+@pytest.mark.smoke
 @pytest.mark.parametrize("tab_name,tab_btn,expect_url", TAB_CASES)
 def test_l3_tab_tour(fresh_page, tab_name, tab_btn, expect_url):
     course = _enter_course_detail(fresh_page)

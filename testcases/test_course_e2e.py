@@ -8,12 +8,14 @@
 - "正在上课"状态提示：工作台入口的副作用未评估，本用例暂不点进第二站
 """
 import allure
+import pytest
 
 from pages.course_page import CoursePage
 
 
 @allure.feature("课程模块")
 @allure.story("端到端：进入课程")
+@pytest.mark.smoke
 def test_e2e_enter_course(fresh_page):
     course = CoursePage(fresh_page)
 
