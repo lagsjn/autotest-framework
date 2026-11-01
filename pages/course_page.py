@@ -13,6 +13,29 @@ class CoursePage(BasePage):
     # ⚠ 该课当前显示"正在上课"，点它有无副作用未评估，E2E 暂未放行到这一站
     workbench_entry_btn = (By.XPATH, "//button[contains(., '进入上课工作台')]")
 
+    # ============ L3：课程详情页四个页签（侦察脚本 probe_tabs.py 实测 2026-11-01） ============
+    # 真实可点的页签是 BUTTON.tp-bc-sub-btn（文字包在内层 span）；
+    # 同名文字还出现在主导航菜单(tp-nav-menu)里——那是菜单项和"当前选中回显"，
+    # 点错会弹出菜单而不是切页签，所以定位器必须用 class 把范围锁死在 sub-btn 这一族。
+    # 纪律自查：语义标签(button) + 可读文字双条件；class 只做消歧，不写 DOM 层数
+    schedule_tab_btn = (By.XPATH,
+        "//button[contains(@class,'tp-bc-sub-btn')][.//span[contains(text(),'课表排期')]]")
+    materials_tab_btn = (By.XPATH,
+        "//button[contains(@class,'tp-bc-sub-btn')][.//span[contains(text(),'资料归档')]]")
+    analytics_tab_btn = (By.XPATH,
+        "//button[contains(@class,'tp-bc-sub-btn')][.//span[contains(text(),'学情看板')]]")
+    members_tab_btn = (By.XPATH,
+        "//button[contains(@class,'tp-bc-sub-btn')][.//span[contains(text(),'班级成员')]]")
+
     def enter_course(self):
         """点击目标课程卡片，进入课程详情页"""
         self.click_element(self.enter_course_btn)
+
+    def is_tab_active(self, tab_btn):
+        """
+        问页面：这个页签现在是不是选中态？
+        依据：选中页签的按钮 class 里会出现 is-active（前端自己标的状态，比截图肉眼靠谱）
+        为什么每次重新 find？DOM 刷新后旧元素对象会 stale（失效），读到的还是历史快照
+        """
+        class_attr = self.get_attr(tab_btn, "class") or ""
+        return "is-active" in class_attr
