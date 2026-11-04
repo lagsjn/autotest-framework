@@ -18,6 +18,19 @@ if not all([BASE_URL, USERNAME, PASSWORD]):
         "缺少敏感配置：请复制 .env.example 为 .env 并填入真实值（该文件不进 git）"
     )
 
+# ============ 扩展身份：可选资源，缺失不炸场（缺值处理分级） ============
+# 学生号 demo_student（L5 跨端）与废弃老师号 demo_deprecated（negative/红级专用）由老师批复。
+# 密码只住 .env（git 拉黑），代码里只读取、不落真值。
+# 和主账号的区别：主账号缺失 raise 终止全场（所有用例的根基）；
+# 扩展账号缺失只把对应能力标成 False，让依赖它的用例 skipif 跳过——
+# 可选资源不该阻塞主干启动（优雅降级）
+STUDENT_USERNAME = os.getenv("TEST_STUDENT_USERNAME")
+STUDENT_PASSWORD = os.getenv("TEST_STUDENT_PASSWORD")
+RED_USERNAME = os.getenv("TEST_RED_USERNAME")
+RED_PASSWORD = os.getenv("TEST_RED_PASSWORD")
+HAS_STUDENT = bool(STUDENT_USERNAME and STUDENT_PASSWORD)
+HAS_RED = bool(RED_USERNAME and RED_PASSWORD)
+
 LOGIN_URL = f"{BASE_URL}/login"
 
 # ============ 等待时间（秒） ============
