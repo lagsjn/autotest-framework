@@ -2,6 +2,8 @@
 # 占位符由 data/__init__.py 加载时替换成 config.py 里的真实值：
 #   {user}=USERNAME  {pwd}=PASSWORD  {wrong_pwd}=WRONG_PASSWORD
 #   {not_exist}=NOT_EXIST_USER  {mid_user}=账号中间插一个空格
+#   {red_user}=废弃老师账号  {red_pwd}=它的密码  {red_mid_user}=废弃账号中间插空格
+#   —— negative 组一律用 red 系占位符：失败次数记在 demo_deprecated 头上，不伤主账号
 # 换测试账号时只改 config.py，这里不用动
 # expect = 断言关键词：提示文案里必须出现它（实测结论，出处见 docs 待确认清单）
 
@@ -22,13 +24,13 @@ front_validate:
 
 # B. 后端拒绝类：真实发请求、可能计入失败次数 → negative，默认不跑
 backend_reject:
-  - case_id: wrong-pwd          # 密码错误
-    username: "{user}"
+  - case_id: wrong-pwd          # 密码错误（锁号主犯：失败记在被提交的账号头上→用废弃号）
+    username: "{red_user}"
     password: "{wrong_pwd}"
     expect: "账号或密码错误"
-  - case_id: user-not-exist     # 账号不存在
+  - case_id: user-not-exist     # 账号不存在（失败计数记在不存在的账号上，伤不到真人，但密码也走 red 系保持隔离）
     username: "{not_exist}"
-    password: "{pwd}"
+    password: "{red_pwd}"
     expect: "账号或密码错误"
   - case_id: both-spaces        # 全空格：DevTools 实测会发真实请求，走后端长度校验分支
     username: "  "
@@ -47,13 +49,13 @@ space_trim:
     username: " {user} "
     password: "{pwd}"
 
-# C2. 中间空格：不 trim → 登录失败并计失败次数 → negative
+# C2. 中间空格：不 trim → 登录失败并计失败次数 → negative（身份全部用废弃号，防锁 demo_teacher）
 space_reject:
   - case_id: space-middle                 # 中间有空格
-    username: "{mid_user}"
-    password: "{pwd}"
+    username: "{red_mid_user}"
+    password: "{red_pwd}"
     expect: "账号或密码错误"
   - case_id: space-middle-and-suffix      # 中间+后面
-    username: "{mid_user} "
-    password: "{pwd}"
+    username: "{red_mid_user} "
+    password: "{red_pwd}"
     expect: "账号或密码错误"

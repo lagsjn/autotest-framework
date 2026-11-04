@@ -1,7 +1,7 @@
 import allure
 import pytest
 
-from config import USERNAME, PASSWORD
+from config import USERNAME, PASSWORD, HAS_RED
 from data import load_data
 from pages.login_page import LoginPage
 
@@ -67,10 +67,11 @@ def test_login_front_validate(driver, username, password, expect):
 @allure.feature("登录模块")
 @allure.story("后端拒绝非法账号密码")
 @pytest.mark.negative
+@pytest.mark.skipif(not HAS_RED, reason=".env 未配置 TEST_RED_*（废弃账号），negative 用例跳过：防止锁主账号")
 @pytest.mark.parametrize("username,password,expect", BACKEND_REJECT_DATA)
 def test_login_backend_reject(driver, username, password, expect):
     """LOGIN-F-003/005 系列：账号或密码不对，后端应拒绝
-    ⚠ 有副作用：会计入登录失败次数，跑之前确认用的是废弃账号
+    ⚠ 有副作用：计入登录失败次数——数据已指向废弃账号（demo_deprecated），主账号不沾
     跑法：python -m pytest -m negative
     """
     login = LoginPage(driver)
@@ -101,10 +102,11 @@ def test_login_username_space_trimmed(driver, username, password, expect):
 @allure.feature("登录模块")
 @allure.story("账号中间空格应被拒绝")
 @pytest.mark.negative
+@pytest.mark.skipif(not HAS_RED, reason=".env 未配置 TEST_RED_*（废弃账号），negative 用例跳过：防止锁主账号")
 @pytest.mark.parametrize("username,password,expect", SPACE_REJECT_DATA)
 def test_login_username_space_rejected(driver, username, password, expect):
     """LOGIN-F-004 系列：账号中间带空格，系统不 trim，应登录失败并给统一提示
-    ⚠ 有副作用：计入登录失败次数，需要废弃账号才跑
+    ⚠ 有副作用：计入登录失败次数，数据已指向废弃账号
     """
     login = LoginPage(driver)
     login.start_watch_toast()

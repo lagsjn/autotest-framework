@@ -6,7 +6,8 @@ import os
 
 import yaml
 
-from config import USERNAME, PASSWORD, WRONG_PASSWORD, NOT_EXIST_USER
+from config import (USERNAME, PASSWORD, WRONG_PASSWORD, NOT_EXIST_USER,
+                    RED_USERNAME, RED_PASSWORD)
 
 _DATA_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "login.yaml")
 
@@ -19,6 +20,17 @@ _REPLACEMENTS = {
     # 实测：账号中间空格不会被 trim、登录失败，专门用来造这种数据
     "{mid_user}": f"{USERNAME[:2]} {USERNAME[2:]}",
 }
+
+# red 系占位符（negative 用例专用，失败记在废弃账号头上）：配了才登记。
+# 为什么不直接写死映射？没配 .env 时 RED_USERNAME=None，
+# 替换结果会变成字符串 "None"——报错时查一个不存在的"None"账号，莫名其妙。
+# 没配时 negative 用例已被 skipif 跳过，这些占位符永远轮不到被消费，安全。
+if RED_USERNAME and RED_PASSWORD:
+    _REPLACEMENTS.update({
+        "{red_user}": RED_USERNAME,
+        "{red_pwd}": RED_PASSWORD,
+        "{red_mid_user}": f"{RED_USERNAME[:2]} {RED_USERNAME[2:]}",
+    })
 
 
 def _fill(value):
