@@ -82,9 +82,10 @@ def test_login_backend_reject(driver, username, password, expect):
 
     msgs = login.wait_toast_texts(timeout=5)
     assert msgs, "登录被拒绝却没有任何提示（用户会以为页面卡住了）"
-    # 实测：密码错误、账号不存在、账号中间有空格，三种失败共用同一句文案
-    # 这是正确的安全设计（不告诉调用方账号到底存不存在），所以可以写精确断言
-    assert any("账号或密码错误" in m for m in msgs), f"提示文案与实测约定不一致：{msgs}"
+    # 预期文案由数据驱动（expect 字段）：不同失败分支文案不同——
+    # 密码错误/账号不存在 → "账号或密码错误"；全空格 → 走长度校验分支"长度不足"。
+    # 此前断言写死文案，与数据文件构成两个事实源，解冻首日就自相矛盾（2026-11-04 复盘）
+    assert any(expect in m for m in msgs), f"提示里没出现预期关键词{expect!r}：{msgs}"
 
 @allure.feature("登录模块")
 @allure.story("账号前后空格应被trim")
@@ -116,7 +117,7 @@ def test_login_username_space_rejected(driver, username, password, expect):
 
     msgs = login.wait_toast_texts(timeout=5)
     assert msgs, "登录被拒绝却没有任何提示（用户会以为页面卡住了）"
-    assert any("账号或密码错误" in m for m in msgs), f"提示文案与实测约定不一致：{msgs}"
+    assert any(expect in m for m in msgs), f"提示里没出现预期关键词{expect!r}：{msgs}"
 
 @allure.feature("登录模块")
 @allure.story("密码明文切换交互")
