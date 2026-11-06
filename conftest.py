@@ -1,5 +1,6 @@
 import logging
 import os
+import re
 import sys
 from datetime import datetime
 
@@ -60,12 +61,10 @@ def pytest_runtest_makereport(item, call):
         if dr is None:
             return
         os.makedirs(SHOT_DIR, exist_ok=True)
-        path = os.path.join(SHOT_DIR, f"{item.name}_{datetime.now():%H%M%S}.png")
-        try:
-            dr.save_screenshot(path)
-            logger.info(f"[失败自动截图] {path}")
-        except Exception as e:  # 截图本身挂了不能再把用例报告带坏
-            logger.warning(f"[截图失败] {e}")
+        # 中文参数会被 pytest 转义成 \u7b7e 这种写法，反斜杠在 Windows 里是路径分隔符
+        # 会把文件名变成不存在的子目录（WinError 3），所以先把非法字符替换掉
+        safe_name = re.sub(r'[\\/:*?"<>|]', "_", item.name)
+        path = os.path.join(SHOT_DIR, f"{safe_name}_{datetime.now():%H%M%S}.png")
         try:
             dr.save_screenshot(path)
             logger.info(f"[失败自动截图] {path}")
@@ -81,10 +80,6 @@ def pytest_runtest_makereport(item, call):
                               attachment_type=allure.attachment_type.TEXT)
         except Exception as e:  # 截图本身挂了不能再把用例报告带坏
             logger.warning(f"[截图失败] {e}")
-        logger.info("==> 登录成功，登录态交给本会话所有用例共享")
-        # yield后面：用例执行完之后执行
-        logger.info("==> 关闭浏览器")
-        dr.quit()
 
 @pytest.fixture(scope="function")
 def fresh_page(logged_in_driver):

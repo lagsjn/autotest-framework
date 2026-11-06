@@ -1,9 +1,10 @@
 import re
+import time
 
 from selenium.webdriver.support.wait import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver import ActionChains
-from selenium.common.exceptions import TimeoutException
+from selenium.common.exceptions import TimeoutException, ElementClickInterceptedException
 
 from config import TIMEOUT
 
@@ -24,10 +25,26 @@ class BasePage:
         用途：断言"该出现的出现了"或"该消失的消失了"
         为什么单独写一个？因为 get_element 找不到元素会直接报 TimeoutException，
         而我们要的是"拿个布尔值去 assert"，两者职责不同
+        注意：presence 判据是"DOM 里有"，不可见的预渲染元素（如没弹出的抽屉按钮）也算存在；
+        要"看得见才算数"请用 is_element_visible
         """
         try:
             WebDriverWait(self.driver, timeout).until(
                 EC.presence_of_element_located(locator)
+            )
+            return True
+        except TimeoutException:
+            return False
+
+    def is_element_visible(self, locator, timeout=2):
+        """
+        判断元素在 timeout 秒内是否"可见"（存在 + 不隐藏），True/False，不抛异常
+        和 is_element_exist 的区别：visibility 要求元素真的渲染出来（有尺寸、没被 display:none）
+        适用：探测弹窗/抽屉这种"组件可能预挂在 DOM 上但并没显示"的浮层
+        """
+        try:
+            WebDriverWait(self.driver, timeout).until(
+                EC.visibility_of_element_located(locator)
             )
             return True
         except TimeoutException:
@@ -74,9 +91,21 @@ class BasePage:
             return ""
 
     def click_element(self, locator):
-        """点击元素"""
+        """
+        点击元素（被遮挡时自动重试）
+        为什么要重试：登录后首次进页有入场动画，动画层会短暂盖住按钮，
+        报 ElementClickInterceptedException（元素找到了也可点，只是按下那一瞬间被盖住）；
+        为什么重新 find：重试间隔里 DOM 可能刷新，旧元素对象会 stale（失效）
+        """
         ele = self.get_element(locator)
-        ele.click()
+        for _ in range(3):
+            try:
+                ele.click()
+                return
+            except ElementClickInterceptedException:
+                time.sleep(1)
+                ele = self.get_element(locator)
+        ele.click()  # 兜底：重试完还挂就抛出真实错误，不掩盖问题
 
     def get_attr(self, locator, name):
         """
