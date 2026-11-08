@@ -90,6 +90,24 @@ class BasePage:
         except TimeoutException:
             return ""
 
+    def wait_text_not_empty(self, locator, timeout=TIMEOUT):
+        """
+        等元素文本"渲染就绪"（非空）再返回文本；超时返回空串（不报错）
+        治的是 Vue 异步渲染竞态：DOM 节点先挂上、文字后填充，
+        presence 判据会抢在文字出现前返回，此时 .text 是空串
+        与 get_text_or_none 的区别：那个只等"节点在不在"，这个等"文字到没到"
+        """
+        def _ready(d):
+            try:
+                t = d.find_element(*locator).text.strip()
+            except Exception:
+                return ""
+            return t or False  # 空串当 False，让 until 继续轮询直到文字渲染出来
+        try:
+            return WebDriverWait(self.driver, timeout).until(_ready)
+        except TimeoutException:
+            return ""
+
     def click_element(self, locator):
         """
         点击元素（被遮挡时自动重试）

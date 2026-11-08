@@ -21,7 +21,7 @@ def test_enter_course_button_exists(logged_in_driver):
 def test_enter_course_button_text(logged_in_driver):
     """按钮不光要在，还得有非空文案（同一次登录态，第二条用例零成本复用）"""
     course = CoursePage(logged_in_driver)
-    text = course.get_text_or_none(course.enter_course_btn, timeout=10)
+    text = course.wait_text_not_empty(course.enter_course_btn, timeout=10)
     assert text, "进入课程按钮存在但文案为空（渲染异常）"
 
 @allure.feature("课程模块")
@@ -37,5 +37,5 @@ def test_enter_course_button_exists(fresh_page):
 def test_enter_course_button_text(fresh_page):
     """按钮不光要在，还得有非空文案（同一次登录态，第二条用例零成本复用）"""
     course = CoursePage(fresh_page)
-    text = course.get_text_or_none(course.enter_course_btn, timeout=10)
+    text = course.wait_text_not_empty(course.enter_course_btn, timeout=10)
     assert text, "进入课程按钮存在但文案为空（渲染异常）"
