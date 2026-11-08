@@ -26,12 +26,16 @@ if not all([BASE_URL, USERNAME, PASSWORD]):
 # 可选资源不该阻塞主干启动（优雅降级）
 STUDENT_USERNAME = os.getenv("TEST_STUDENT_USERNAME")
 STUDENT_PASSWORD = os.getenv("TEST_STUDENT_PASSWORD")
+# 学生端独立入口：同一系统不同端口（实测 2026-11-07：8081老师/8082学生/8084管理）
+STUDENT_BASE_URL = os.getenv("TEST_STUDENT_BASE_URL")
 RED_USERNAME = os.getenv("TEST_RED_USERNAME")
 RED_PASSWORD = os.getenv("TEST_RED_PASSWORD")
-HAS_STUDENT = bool(STUDENT_USERNAME and STUDENT_PASSWORD)
+HAS_STUDENT = bool(STUDENT_USERNAME and STUDENT_PASSWORD and STUDENT_BASE_URL)
 HAS_RED = bool(RED_USERNAME and RED_PASSWORD)
 
 LOGIN_URL = f"{BASE_URL}/login"
+# 学生端登录地址：只在 HAS_STUDENT 为 True 时被 L5 用例使用
+STUDENT_LOGIN_URL = f"{STUDENT_BASE_URL}/login" if STUDENT_BASE_URL else None
 
 # ============ 等待时间（秒） ============
 # 显式等待最多等多久。太小->网络一慢就误报失败；太大->失败用例卡很久
