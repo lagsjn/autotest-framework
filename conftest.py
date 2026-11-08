@@ -10,7 +10,10 @@ import pytest
 from selenium import webdriver
 from selenium.webdriver.edge.options import Options
 
-from config import LOGIN_URL, BROWSER_DEBUG, USERNAME, PASSWORD, BASE_URL
+from config import (
+    LOGIN_URL, BROWSER_DEBUG, USERNAME, PASSWORD, BASE_URL,
+    STUDENT_LOGIN_URL, STUDENT_BASE_URL, STUDENT_USERNAME, STUDENT_PASSWORD,
+)
 from pages.login_page import LoginPage
 
 # log 目录专门放运行产物：日志 + 失败截图（以后不提交到 git）
@@ -40,6 +43,22 @@ def _setup_logger():
 
 
 logger = _setup_logger()
+
+
+def _make_browser():
+    """统一造一个配好选项的 Edge 实例（多处 fixture 复用，避免重复 = 改一处全生效）
+    为什么抽出来？老师/学生两个 session 级 fixture + function 级 driver 都要
+    同样走一遍"忽略自签证书 + 调试时不关窗 + 最大化"，复制三处将来必漏改
+    """
+    edge_options = Options()
+    edge_options.add_argument('--ignore-certificate-errors')
+    if BROWSER_DEBUG:
+        # 只在调试时开：跑完不关浏览器，方便你看页面
+        # 正式跑/CI 必须把 config.py 里的 BROWSER_DEBUG 改成 False，否则进程会残留
+        edge_options.add_experimental_option("detach", True)
+    dr = webdriver.Edge(options=edge_options)
+    dr.maximize_window()
+    return dr
 
 
 @pytest.hookimpl(hookwrapper=True)
@@ -93,14 +112,7 @@ def fresh_page(logged_in_driver):
 @pytest.fixture(scope="function")
 def driver():
     logger.info("==> 启动浏览器（function 级）")
-    edge_options = Options()
-    edge_options.add_argument('--ignore-certificate-errors')
-    if BROWSER_DEBUG:
-        # 只在调试时开：跑完不关浏览器，方便你看页面
-        # 正式跑/CI 必须把 config.py 里的 BROWSER_DEBUG 改成 False，否则进程会残留
-        edge_options.add_experimental_option("detach", True)
-    dr = webdriver.Edge(options=edge_options)
-    dr.maximize_window()
+    dr = _make_browser()
     dr.get(LOGIN_URL)
     yield dr
     # yield后面：用例执行完之后执行
@@ -113,13 +125,8 @@ def logged_in_driver():
     给"进去以后"的业务模块（课程/工作台）用；登录模块自己不许用
     前置失败（比如账号被锁）会让所有用它的用例集体阵亡——见讲解的连锁失败风险
     """
-    logger.info("==> 启动浏览器（session 级，登录态复用）")
-    edge_options = Options()
-    edge_options.add_argument('--ignore-certificate-errors')
-    if BROWSER_DEBUG:
-        edge_options.add_experimental_option("detach", True)
-    dr = webdriver.Edge(options=edge_options)
-    dr.maximize_window()
+    logger.info("==> 启动老师端浏览器（session 级，登录态复用）")
+    dr = _make_browser()
     dr.get(LOGIN_URL)
     login = LoginPage(dr)
     login.login(USERNAME, PASSWORD)
@@ -127,3 +134,31 @@ def logged_in_driver():
     logger.info("==> 登录成功，登录态交给本会话所有用例共享")
     yield dr
     dr.quit()
+
+
+@pytest.fixture(scope="session")
+def logged_in_student():
+    """session 级：整场只开一次学生端浏览器、只登录一次 demo_student（L5 跨端专用）
+    这是本框架第一次"同一趟测试里并存两个身份"：
+    老师端 logged_in_driver 走 8081，学生会话走 8082，各开各的、互不干扰
+    前置失败（学生账号被锁/端口错）只波及用到它的跨端用例，不影响老师端主干
+    """
+    logger.info("==> 启动学生端浏览器（session 级，登录态复用）")
+    dr = _make_browser()
+    dr.get(STUDENT_LOGIN_URL)
+    login = LoginPage(dr)
+    login.login(STUDENT_USERNAME, STUDENT_PASSWORD)
+    assert login.is_login_success(), "学生登录态前置失败：demo_student 没登进去（账号被锁？端口配错？）"
+    logger.info("==> 学生登录成功，登录态交给跨端用例共享")
+    yield dr
+    dr.quit()
+
+
+@pytest.fixture(scope="function")
+def fresh_student_page(logged_in_student):
+    """学生版页面归位：每条跨端用例开跑前把学生浏览器拽回学生端入口（登录态还在）
+    和老师版 fresh_page 对称——起点一致，用例之间才互不串扰
+    """
+    logger.info("==> 学生页面归位：重新打开学生端入口")
+    logged_in_student.get(STUDENT_BASE_URL)
+    return logged_in_student
