@@ -1,14 +1,34 @@
 """
-登录模块接口自动化用例（第一批）
+登录模块接口自动化用例
 - 分层：本文件只写"发哪个接口 + 断言返回对不对"，怎么发请求交给 api/ 层
-- 绿级用例（默认跑）：正确登录、带 token 查课程、无 token 被拒——都不触发账号失败计数
-- 红级用例（默认排除）：错误密码登录会累计锁定，打成 negative 且强制走废弃账号，
-  治理策略和 UI 层 test_login.py 完全一致（同一红线不能两头漏）
+- 数据驱动：拒绝类场景的输入与预期外置 data/api_login.yaml，新增一条只加一行数据
+- 绿级用例（默认跑）：正确登录、参数校验拒绝、不存在账号拒绝、带/无 token 查课程
+- 红级用例（默认排除）：错误密码登录会累计锁定，打成 negative 且强制走废弃账号
 """
 import allure
 import pytest
 
 from config import USERNAME, PASSWORD, HAS_RED, RED_USERNAME, RED_PASSWORD
+from data import load_data
+
+
+def _reject_params(section):
+    """api_login.yaml 的一段 -> pytest.mark.parametrize 参数列表
+    每行喂 4 个值：用例编号 + 请求体 + 预期HTTP码 + 预期业务码 + 预期文案关键词
+    “一行数据 = 一条独立用例”就靠这个函数把 YAML 行翻译成 pytest 参数
+    """
+    return [
+        pytest.param(d["case_id"], d["payload"],
+                     d["expect_status"], d["expect_code"], d["expect_msg"],
+                     id=d["case_id"])
+        for d in load_data(section, "api_login.yaml")
+    ]
+
+
+# 参数校验拒绝数据（绿级：不碰真实账号、不会造成失败计数）
+PARAM_INVALID_DATA = _reject_params("param_invalid")
+# 身份验证拒绝数据（绿级：走不存在的幽灵账号）
+AUTH_REJECT_DATA = _reject_params("auth_reject")
 
 
 @allure.feature("登录模块-接口")
@@ -33,18 +53,45 @@ def test_api_login_success(login_api):
 
 
 @allure.feature("登录模块-接口")
-@allure.story("错误账号被拒绝")
-def test_api_login_not_exist_user(login_api):
-    """不存在的账号：HTTP 401 + 业务码 40104（实测）
-    安全：走 config 里的假账号 NOT_EXIST 思路——用一个不存在的名，绝不碰真实账号，
-    不会累计任何真人账号的失败次数，所以是绿级
+@allure.story("参数校验拒绝")
+@pytest.mark.parametrize("case_id,payload,expect_status,expect_code,expect_msg", PARAM_INVALID_DATA)
+def test_api_login_param_invalid(login_api, case_id, payload, expect_status, expect_code, expect_msg):
+    """空值/缺字段/空请求体：请求本身不合法，服务端参数校验关拦下
+    预期（400/40001）来自实测，全在 YAML 里；本函数只写一套通用断言逻辑
+    “新增一种非法输入 = 只加一行 YAML”就是这个用例的价值
     """
-    resp = login_api.login("t_not_exist_9999", "whatever_000")
+    resp = login_api.send(payload)
 
-    assert resp.status_code == 401, f"不存在账号应返回 401，实际 {resp.status_code}"
+    body = resp.json() if resp.text else {}
+    # 三维度断言（数据驱动：预期值都从参数来，不写死）
+    assert resp.status_code == expect_status, \
+        f"[{case_id}] 请求体{payload} 应回 HTTP {expect_status}，实际 {resp.status_code}：{resp.text[:200]}"
+    assert body.get("code") == expect_code, \
+        f"[{case_id}] 业务码应为 {expect_code}，实际 {body.get('code')}"
+    assert expect_msg in (body.get("message") or ""), \
+        f"[{case_id}] message 应含{expect_msg!r}，实际 {body.get('message')!r}"
+    # 参数不合法的请求绝不该吐 token
+    assert not login_api.extract_token(body), f"[{case_id}] 参数校验都没过却发出了 token（鉴权混乱！）"
+
+
+@allure.feature("登录模块-接口")
+@allure.story("身份验证拒绝")
+@pytest.mark.parametrize("case_id,payload,expect_status,expect_code,expect_msg", AUTH_REJECT_DATA)
+def test_api_login_auth_reject(login_api, case_id, payload, expect_status, expect_code, expect_msg):
+    """参数合法但账号查无此人：身份验证关拒绕（401/40104）
+    安全：走 config 里的假账号 {not_exist}，失败记在幽灵账号头上，伤不到真人、不锁号，绿级
+    这条与上一条拉开“400 vs 401”的分界：一个是请求不合法，一个是请求合法但身份不对
+    """
+    resp = login_api.send(payload)
+
     body = resp.json()
-    assert body.get("code") == 40104, f"业务码应为 40104（账号或密码错误），实际 {body.get('code')}"
-    assert not login_api.extract_token(body), "登录失败了却还发得出 token（鉴权有漏洞！）"
+    assert resp.status_code == expect_status, \
+        f"[{case_id}] 应回 HTTP {expect_status}，实际 {resp.status_code}：{resp.text[:200]}"
+    assert body.get("code") == expect_code, \
+        f"[{case_id}] 业务码应为 {expect_code}，实际 {body.get('code')}"
+    assert expect_msg in (body.get("message") or ""), \
+        f"[{case_id}] message 应含{expect_msg!r}，实际 {body.get('message')!r}"
+    assert not login_api.extract_token(body), f"[{case_id}] 登录失败却还发得出 token（鉴权有漏洞！）"
 
 
 @allure.feature("登录模块-接口")

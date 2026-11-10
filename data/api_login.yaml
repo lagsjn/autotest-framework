@@ -1,0 +1,45 @@
+# 登录接口测试数据（数据驱动：改数据不碰代码）
+# 预期全部来自实测（script/probe_api_edge.py，2026-11-10），不拍脑袋：
+#   - 参数校验关：空值/缺字段/空请求体 -> HTTP 400 | code 40001 | "参数校验失败"
+#   - 身份验证关：账号不存在（字段齐）  -> HTTP 401 | code 40104 | "账号或密码错误"
+# 占位符由 data/__init__.py 加载时替换成 config.py 真实值：{not_exist}=NOT_EXIST_USER
+# expect_status = HTTP 状态码；expect_code = 返回体业务码；expect_msg = message 关键词
+# 断言维度写全（状态码+业务码+文案），任一层对不上都能一眼定位
+
+# A. 参数校验失败类：请求本身不合法，还没轮到鉴权，也不碰任何真实账号 -> 绿级安全，默认跑
+param_invalid:
+  - case_id: empty-username        # 账号为空字符串
+    payload:
+      username: ""
+      password: "whatever"
+    expect_status: 400
+    expect_code: 40001
+    expect_msg: "参数校验失败"
+  - case_id: empty-password        # 密码为空字符串
+    payload:
+      username: "{not_exist}"
+      password: ""
+    expect_status: 400
+    expect_code: 40001
+    expect_msg: "参数校验失败"
+  - case_id: missing-password      # 整个缺 password 字段（login() 造不出，靠 payload 直发）
+    payload:
+      username: "{not_exist}"
+    expect_status: 400
+    expect_code: 40001
+    expect_msg: "参数校验失败"
+  - case_id: empty-body            # 空请求体 {}
+    payload: {}
+    expect_status: 400
+    expect_code: 40001
+    expect_msg: "参数校验失败"
+
+# B. 身份验证失败类：参数格式合法，但账号查无此人 -> 失败记在"幽灵账号"头上，伤不到真人，绿级
+auth_reject:
+  - case_id: user-not-exist        # 不存在的账号 + 任意密码
+    payload:
+      username: "{not_exist}"
+      password: "whatever"
+    expect_status: 401
+    expect_code: 40104
+    expect_msg: "账号或密码错误"

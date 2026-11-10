@@ -9,8 +9,6 @@ import yaml
 from config import (USERNAME, PASSWORD, WRONG_PASSWORD, NOT_EXIST_USER,
                     RED_USERNAME, RED_PASSWORD)
 
-_DATA_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "login.yaml")
-
 # 占位符 -> 真实值（全部来源于 config.py，换账号只改 config）
 _REPLACEMENTS = {
     "{user}": USERNAME,
@@ -46,8 +44,12 @@ def _fill(value):
     return value
 
 
-def load_data(section):
-    """读 login.yaml 的指定段（如 front_validate），返回 list[dict]"""
-    with open(_DATA_FILE, encoding="utf-8") as f:
+def load_data(section, filename="login.yaml"):
+    """读指定 yaml 文件的指定段（如 front_validate），返回 list[dict]
+    filename 默认 login.yaml：UI 层旧调用 load_data(section) 一字不用改；
+    接口层传 load_data(section, "api_login.yaml") 就能复用同一套占位符替换逻辑
+    """
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), filename)
+    with open(path, encoding="utf-8") as f:
         all_data = yaml.safe_load(f)
     return _fill(all_data[section])

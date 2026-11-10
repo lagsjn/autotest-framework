@@ -13,6 +13,12 @@ class LoginApi(BaseApi):
         """POST 登录，返回原始 requests 响应（用例层自己断言状态码/字段）"""
         return self.post(self.LOGIN_PATH, json={"username": username, "password": password})
 
+    def send(self, payload):
+        """直发任意请求体（数据驱动专用）：用于造"空值/缺字段/空请求体"这种
+        login() 造不出的畸形请求。路径封装在本类，用例层只传 payload 不碰路径
+        """
+        return self.post(self.LOGIN_PATH, json=payload)
+
     def login_and_get_token(self, username: str = USERNAME, password: str = PASSWORD) -> str:
         """一步到位拿 token，给"需要登录态"的接口用例当前置（对标 UI 的登录态复用）
         拿不到就当场报错——前置失败要第一时间喊出来，别让下游用例拿 None 去发请求
@@ -26,8 +32,10 @@ class LoginApi(BaseApi):
     @staticmethod
     def extract_token(body: dict):
         """从登录返回体里抠 access_token：data.access_token（实测结构）
-        失败返回体里 data 是 null（键在、值为空），所以不能直接 .get("data", {})
-        ——那会拿到 None 再 .get 就炸。用 `or {}` 把 None 也兼平成空字典
+        防御型：data 在不同分支下类型不一样——成功=dict、身份错(401)=null、
+        参数错(400)=list（实测探出）；非 dict 一律当"没有 token"，不能直接 .get 炸栈
         """
-        data = (body or {}).get("data") or {}
+        data = (body or {}).get("data")
+        if not isinstance(data, dict):
+            return None
         return data.get("access_token")
