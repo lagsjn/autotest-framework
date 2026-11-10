@@ -37,6 +37,12 @@ LOGIN_URL = f"{BASE_URL}/login"
 # 学生端登录地址：只在 HAS_STUDENT 为 True 时被 L5 用例使用
 STUDENT_LOGIN_URL = f"{STUDENT_BASE_URL}/login" if STUDENT_BASE_URL else None
 
+# ============ 接口自动化：API 版本前缀（实测 2026-11-08 抓包确认） ============
+# UI 点"登录"背后打的就是 POST {BASE_URL}/api/v1/auth/login，
+# 接口自动化直连这层，不经过浏览器。版本前缀 /api/v1 集中在此，
+# 将来系统升级成 /api/v2 只改这一行，全项目接口用例跟着生效
+API_PREFIX = "/api/v1"
+
 # ============ 等待时间（秒） ============
 # 显式等待最多等多久。太小->网络一慢就误报失败；太大->失败用例卡很久
 TIMEOUT = 10

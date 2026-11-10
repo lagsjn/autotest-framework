@@ -15,6 +15,8 @@ from config import (
     STUDENT_LOGIN_URL, STUDENT_BASE_URL, STUDENT_USERNAME, STUDENT_PASSWORD,
 )
 from pages.login_page import LoginPage
+from api.login_api import LoginApi
+from api.course_api import CourseApi
 
 # log 目录专门放运行产物：日志 + 失败截图（以后不提交到 git）
 LOG_DIR = os.path.join(os.path.dirname(__file__), "log")
@@ -162,3 +164,28 @@ def fresh_student_page(logged_in_student):
     logger.info("==> 学生页面归位：重新打开学生端入口")
     logged_in_student.get(STUDENT_BASE_URL)
     return logged_in_student
+
+
+# ==================== 接口自动化 fixture ====================
+@pytest.fixture(scope="function")
+def login_api():
+    """登录接口对象（function 级：无状态、成本低，每条用例各自 new 一个互不干扰）"""
+    return LoginApi()
+
+
+@pytest.fixture(scope="function")
+def course_api():
+    """课程接口对象"""
+    return CourseApi()
+
+
+@pytest.fixture(scope="session")
+def api_token():
+    """session 级：整场 pytest 只登录一次、只取一次 token，全项目接口用例共享
+    对标 UI 的 logged_in_driver：前置失败（账号被锁/接口挂了）只影响需要登录态的接口用例，
+    不波及 UI 用例（两套体系互不依赖，一边挂另一边照跑）
+    """
+    logger.info("==> 接口层：登录取 token（session 级，登录态复用）")
+    token = LoginApi().login_and_get_token()
+    logger.info("==> 接口层 token 已取得，交给本会话所有需要鉴权的用例")
+    return token
