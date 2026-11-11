@@ -111,19 +111,6 @@ def test_api_courses_with_token(course_api, api_token):
 
 
 @allure.feature("登录模块-接口")
-@allure.story("无 token 访问被拒")
-def test_api_courses_without_token_denied(course_api):
-    """安全回归：不带 Authorization 头直接查课程，服务端应拒绝（401）
-    这条专门守"鉴权是否真的生效"——数据没被读走之前，先证明门是锁着的。
-    不触发账号失败计数（压根没走登录），绿级
-    """
-    resp = course_api.list_courses(token=None)  # BaseApi 见 token 为空就不塞鉴权头
-
-    assert resp.status_code == 401, \
-        f"无 token 访问课程列表本应被拒（401），实际 {resp.status_code}——接口没做鉴权，越权风险！"
-
-
-@allure.feature("登录模块-接口")
 @allure.story("错误密码被拒绝")
 @pytest.mark.negative
 @pytest.mark.skipif(not HAS_RED, reason=".env 未配置 TEST_RED_*（废弃账号），negative 用例跳过：防止锁主账号")

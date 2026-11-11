@@ -189,3 +189,15 @@ def api_token():
     token = LoginApi().login_and_get_token()
     logger.info("==> 接口层 token 已取得，交给本会话所有需要鉴权的用例")
     return token
+
+
+@pytest.fixture(scope="session")
+def api_student_token():
+    """session 级：学生身份 API token（从学生端 8082 登录取），供垂直越权/数据隔离用例用
+    未配学生号时，依赖它的用例用 skipif(HAS_STUDENT) 先跳过，fixture 不会被实例化（安全）
+    拿学生 token 去调老师端(8081)接口，正是验证"身份合法但数据边界"的手段
+    """
+    logger.info("==> 接口层：学生登录取 token（session 级）")
+    token = LoginApi(base_url=STUDENT_BASE_URL).login_and_get_token(STUDENT_USERNAME, STUDENT_PASSWORD)
+    logger.info("==> 学生 token 已取得，交给越权矩阵用例")
+    return token
