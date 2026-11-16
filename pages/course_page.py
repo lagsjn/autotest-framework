@@ -15,36 +15,71 @@ class CoursePage(BasePage):
     # 旧绝对 XPath '//*[@id="app"]/div[2]/.../span[2]/div' 已弃用：前端加一层 div 就全挂
     enter_course_btn = (By.XPATH, f"//button[.//div[contains(text(), '{COURSE_NAME}')]]")
 
+    # 当前讲次页（/lessons/<id>）顶部的面包屑"课程名"那级（probe_lesson_landing.py 实测 2026-11-14）：
+    # 真 <a> 链接，href 直接指向 /courses/<id>，可读文字=课程名，比图标 class 稳定
+    # ⚠ 旧定位器 tp-nav-menu__home 已随 11-14 界面改版消失（整站 class 从 tp-* 换成 ui-*/cb-*）
+    back_to_course_btn = (By.XPATH, f"//a[contains(@class,'ui-head__crumb')][contains(text(), '{COURSE_NAME}')]")
+
     # 课程详情页的绿色地标按钮：既是"到站"断言的依据，也是下一站（工作台）的入口
-    # ⚠ 该课当前显示"正在上课"，点它有无副作用未评估，E2E 暂未放行到这一站
+    # ⚠ 2026-11-14 重跑发现详情页改版：这个文字的地标已不在（L4 入场链路需随改版重侦察）
     workbench_entry_btn = (By.XPATH, "//button[contains(., '进入上课工作台')]")
 
-    # ============ L3：课程详情页四个页签（侦察脚本 probe_tabs.py 实测 2026-11-01） ============
-    # 真实可点的页签是 BUTTON.tp-bc-sub-btn（文字包在内层 span）；
-    # 同名文字还出现在主导航菜单(tp-nav-menu)里——那是菜单项和"当前选中回显"，
-    # 点错会弹出菜单而不是切页签，所以定位器必须用 class 把范围锁死在 sub-btn 这一族。
-    # 纪律自查：语义标签(button) + 可读文字双条件；class 只做消歧，不写 DOM 层数
-    schedule_tab_btn = (By.XPATH,
-        "//button[contains(@class,'tp-bc-sub-btn')][.//span[contains(text(),'课表排期')]]")
-    materials_tab_btn = (By.XPATH,
-        "//button[contains(@class,'tp-bc-sub-btn')][.//span[contains(text(),'资料归档')]]")
-    analytics_tab_btn = (By.XPATH,
-        "//button[contains(@class,'tp-bc-sub-btn')][.//span[contains(text(),'学情看板')]]")
-    members_tab_btn = (By.XPATH,
-        "//button[contains(@class,'tp-bc-sub-btn')][.//span[contains(text(),'班级成员')]]")
+    # 详情页新地标（probe_lesson_landing.py 实测 2026-11-14）：课程专属页签栏
+    # "概览/课表/备课资源/学情/成员/设置"，旧名 tp-bc-sub-btn 那族已被它替代；
+    # 用它做"到站"断言：列表页/当前讲次页都没有这条栏，只有详情页有
+    detail_tabs_nav = (By.CSS_SELECTOR, "nav.cb__tabs")
+
+    # ============ L3：课程详情页页签（probe_l3_tabs_v2.py 实测 2026-11-14，随界面改版重写） ============
+    # 旧 BUTTON.tp-bc-sub-btn 全族已死；新页签是 <a class="cb__tab">（router-link 真链接）
+    # 实测情报（写进断言前必须拿到）：
+    #   URL 形态混用：课表=?tab=lessons、学情=?tab=analytics、成员=?tab=members（参数式，
+    #   相对裸 URL 必变）；备课资源=/resources、设置=/settings（路径式）；默认页签=概览（裸 URL）
+    #   选中态判据：只有 is-on 打在真正选中的那一个上；router-link-active 会同时挂在多个
+    #   前缀匹配的子路由页签上（实测在课表页时概览也带它），用它判会误报——继续只认 is-on
+    # ⚠ 成员页签文字是"成员 50"（带实时人数），定位必须用 starts-with 前缀匹配，
+    #   写死全文字会随人数变化升空
+    def tab_btn(self, name):
+        """按页签前缀文字锁定页签（定位器工厂，同 course_card 的套路）"""
+        return (By.XPATH,
+            f"//a[contains(@class,'cb__tab')][starts-with(normalize-space(),'{name}')]")
+
+    def click_tab(self, name, expect_url_re):
+        r"""点页签并等 URL 落位，返回匹配到的 URL（没等到返回 None，让用例自己 assert）
+        为什么把"点+等"打包进页面对象：URL 切换滞后于点击（SPA 老坑），
+        每条用例各写一遍等待迟早有人漏；方法语义=业务动作"切到某页签"
+        expect_url_re 随数据传入：改版后 URL 形态混用（?tab= 与 /xxx 并存），
+        形态是"测什么"的数据，不是"怎么点"的逻辑，留在 TAB_CASES 里维护
+        注：概览页"无害空点"（点了 URL 不变）时等待会超时返回 None，
+        用例里的 expect_url_re 写 r"/courses/\d+$" 会再等一轮——多花几秒不出错，
+        不值得为此写特判分支增加复杂度
+        """
+        self.click_element(self.tab_btn(name))
+        return self.wait_url_matches(expect_url_re)
 
     def enter_course(self):
-        """点击目标课程卡片，进入课程详情页"""
+        r"""点击目标课程卡片，保证最终抵达课程详情页 /courses/<id>
+        环境定性（2026-11-11，11-14 纠正）：该课有 ongoing 讲次时，点卡片落的是
+        "当前讲次页" /lessons/<id>（产品设计，非缺陷）。不在每条用例里各写一遍分支，
+        而是把落点差异消化在导航方法内部——页面对象的职责是提供业务动作
+        （"进入课程"），不是"盲点一下按钮"；调用方的到站断言仍锁 /courses/\d+ 不放宽。
+        """
         self.click_element(self.enter_course_btn)
+        # SPA 路由切换滞后于点击：先等"两种落点之一"出现，再决定要不要补救
+        landed = self.wait_url_matches(r"/courses/\d+|/lessons/\d+")
+        if landed and "/lessons/" in landed:
+            self.click_element(self.back_to_course_btn)   # 当前讲次页 -> 返回课程详情页
+            self.wait_url_matches(r"/courses/\d+")
 
-    def is_tab_active(self, tab_btn):
+    def is_tab_active(self, tab_name):
         """
         问页面：这个页签现在是不是选中态？
-        依据：选中页签的按钮 class 里会出现 is-active（前端自己标的状态，比截图肉眼靠谱）
-        为什么每次重新 find？DOM 刷新后旧元素对象会 stale（失效），读到的还是历史快照
+        依据：选中页签的 <a> class 里只会出现 is-active（旧版实测）或 is-on（11-14 新版实测），
+        两个都认——前端再改版换了状态类名时，这里改一行就能兼容，且用例层无感；
+        为什么不认 router-link-active：实测它会同时挂在多个前缀匹配的子路由页签上，判不准
+        为什么每次重新 find：DOM 刷新后旧元素对象会 stale（失效），读到的还是历史快照
         """
-        class_attr = self.get_attr(tab_btn, "class") or ""
-        return "is-active" in class_attr
+        class_attr = self.get_attr(self.tab_btn(tab_name), "class") or ""
+        return "is-active" in class_attr or "is-on" in class_attr
 
     # ============ L5：老师建课 + 读邀请码（侦察 probe_l5_teacher.py 实测 2026-11-07） ============
     # "创建课程"入口：课程列表右上角（文字含"创建课程"）

@@ -1,11 +1,13 @@
 """
-L4 课堂控制台只读巡礼（🟢 绿级）
-安全边界（业务流程地图 §12 定性表）：只点 tp-bc-sub-btn 子导航和关抽屉，
-面板内部的 下课/发布测验/立即发布/编辑/AI生成 一律不碰——红黄级元素
-侦察结论（probe_console.py 2026-11-04）：
-- 进入工作台为同页跳转，URL=/lessons/<数字id>，断言用正则不写死 id
-- 子导航十项，默认"控制台"激活（is-active）
-- 进入时可能自带打开状态的抽屉，先关闭再巡礼
+L4 课堂回放页只读巡礼（🟢 绿级）—— 2026-11-14 随界面改版重写
+侦察情报来源：script/probe_l4_console_v2.py 实测（旧 probe_console.py 2026-11-04 的
+"工作台十项子导航"UI 已随改版不可见，实时工作台待开课后再侦察，见业务流程地图 §13.5）
+- 入场：课程列表点演示课卡片，直达当前讲次回放页 /lessons/<id>（两次实测均直接落）
+- 新版巡览模型：回放主页 + 7 个路径式子页面（a.llink 入口 -> /lessons/<id>/<段>），
+  独立路由页面没有"选中态"可断，双保险改成 ①到站 URL 正则 ②页面框架地标（面包屑）
+- 安全边界：只点导航链接；子页面内部（如 /manage 的布置/发布、出勤页的标为请假）
+  一律不碰——那是黄级写操作
+- 用例条数 10 -> 8（主页 1 + 巡礼站 7），--co 总数会相应减 2，属预期不是丢用例
 """
 import allure
 import pytest
@@ -13,51 +15,69 @@ import pytest
 from pages.course_page import CoursePage
 from pages.console_page import ConsolePage
 
-# "控制台"放最后：其余九个面板都巡完再回默认面板，顺带验证"回得去"
-SUB_TABS = ["签到", "大屏", "点名", "弹幕", "提问", "讨论", "评分",
-            "质量报告", "课后报告", "控制台"]
+# (入口文字关键词, URL 尾段正则)
+# 冒烟只选一条代表站（标签贴单个参数上）：选"出勤明细"——回放页最核心的数据面
+REPLAY_PARAMS = [
+    pytest.param("出勤明细", r"attendance", marks=pytest.mark.smoke, id="attendance"),
+    pytest.param("本讲评分", r"scoreboard", id="scoreboard"),
+    pytest.param("学生提问", r"questions", id="questions"),
+    pytest.param("讨论记录", r"discussions", id="discussions"),
+    pytest.param("课堂质量报告", r"quality-report", id="quality"),
+    pytest.param("课后学情报告", r"class-report", id="class-report"),
+    pytest.param("管理随堂测与作业", r"manage", id="manage"),
+]
 
-# 冒烟只选一条代表巡礼项（标签贴在单个参数上，不是整个函数）：
-# 全贴会把冒烟集从 5 条膨胀到 15 条，失去"每次构建快速把关"的意义；
-# 选"控制台"：默认就在它上面，再点一次还能验证"选中态不丢+回得去"
-SMOKE_TAB = "控制台"
-TAB_PARAMS = [pytest.param(t, marks=pytest.mark.smoke) if t == SMOKE_TAB else t
-              for t in SUB_TABS]
 
-
-def _enter_workbench(fresh_page):
-    """入场链路全绿级：列表 -> 课程详情（老师已确认进工作台安全）-> 处理抽屉"""
-    course = CoursePage(fresh_page)#先进去课程页面
+def _enter_replay(fresh_page):
+    """入场：点课程卡片直达当前讲次回放页，返回 ConsolePage
+    为什么不调 CoursePage.enter_course：那条路会把落点扳回课程详情页（给 L2/L3 用），
+    本用例要的恰恰是"当前讲次页"这个落点本身
+    """
+    course = CoursePage(fresh_page)
     assert course.is_element_exist(course.enter_course_btn, timeout=10), \
         "起点不对：课程列表找不到目标课程卡片"
-    course.enter_course()
-    assert course.wait_url_matches(r"/courses/\d+"), "进不去课程详情页"
-
-    course.click_element(course.workbench_entry_btn)
+    course.click_element(course.enter_course_btn)
+    url = course.wait_url_matches(r"/lessons/\d+")
+    assert url, \
+        f"点卡片没落到当前讲次回放页，停在：{fresh_page.current_url}（该课还有讲次吗？）"
     console = ConsolePage(fresh_page)
-    assert console.wait_url_matches(r"/lessons/\d+"), \
-        f"点了进入工作台但未到达 /lessons/<id>，停在：{fresh_page.current_url}"
-
-    # 抽屉现场快照是打开态；出现就关掉（短等待探测：2 秒没看见就认为没弹）
-    # 注意必须用 visibility（看得见）而不是 presence（DOM 里有）：
-    # 抽屉没弹时关闭按钮也预挂在 DOM 上，presence 会误报存在然后去点它，等死 10 秒
-    if console.is_element_visible(console.drawer_close_btn, timeout=2):
-        console.click_element(console.drawer_close_btn)
+    assert console.is_element_exist(console.crumb_marker, timeout=10), \
+        "回放页框架（面包屑）没渲染（页面没加载对？又改版了？）"
     return console
 
 
 @allure.feature("课堂模块")
-@allure.story("L4 控制台只读巡礼")
-@pytest.mark.parametrize("tab_name", TAB_PARAMS)
-def test_l4_console_tour(fresh_page, tab_name):
-    console = _enter_workbench(fresh_page)
+@allure.story("L4 回放页只读巡礼")
+def test_l4_replay_landing(fresh_page):
+    """落点主页：框架地标在 + 七个巡览入口齐全（缺一个都算红）"""
+    console = _enter_replay(fresh_page)
 
-    with allure.step(f"点击子导航：{tab_name}"):
-        console.click_element(console.sub_btn(tab_name))
+    with allure.step("断言七个巡览入口全部可见"):
+        # REPLAY_PARAMS 元素是 pytest.param(...) 包出来的 ParameterSet（values/marks/id 三字段的
+        # NamedTuple），不是裸二元组；被 @pytest.mark.parametrize 用时 pytest 会自动拆 values，
+        # 但这里是自己手写循环遍历，必须显式取 .values，否则直接解包会按 3 元组去拆 2 个变量报错
+        missing = [name for name, _ in (p.values for p in REPLAY_PARAMS)
+                   if not console.is_element_exist(console.lesson_link(name), timeout=3)]
+        assert not missing, f"回放页缺少巡览入口：{missing}"
 
-    with allure.step("断言该面板自证选中态"):
-        assert console.is_sub_active(tab_name), f"子导航【{tab_name}】没挂 is-active"
 
-    with allure.step("断言仍停留在课堂（切面板不应跳走）"):
-        assert console.wait_url_matches(r"/lessons/\d+"), \
-            f"点【{tab_name}】后跳离了课堂：{fresh_page.current_url}"
+@allure.feature("课堂模块")
+@allure.story("L4 回放页只读巡礼")
+@pytest.mark.parametrize("link_name,url_seg", REPLAY_PARAMS)
+def test_l4_replay_tour(fresh_page, link_name, url_seg):
+    console = _enter_replay(fresh_page)
+
+    with allure.step(f"点击巡览入口：{link_name}"):
+        console.click_element(console.lesson_link(link_name))
+
+    with allure.step(f"等 URL 落到 /lessons/<id>/{url_seg}"):
+        # $ 锚点：必须正好停在这段路由，不能被重定向到别站
+        final_url = console.wait_url_matches(rf"/lessons/\d+/{url_seg}$")
+        assert final_url, \
+            f"点了【{link_name}】但 URL 不符预期，停在：{fresh_page.current_url}"
+
+    with allure.step("断言页面框架仍在（双保险：没跳出站、框架渲染完整）"):
+        # 独立路由页没有页签式"选中态"可查，用面包屑证明真的渲染出了目标页框架；
+        # 各子页面的内容级地标待后续侦察后再补强
+        assert console.is_element_exist(console.crumb_marker, timeout=10), \
+            f"URL 到站但【{link_name}】页框架没渲染（空白页/报错页？）"

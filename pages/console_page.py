@@ -1,45 +1,29 @@
 from selenium.webdriver.common.by import By
-from selenium.webdriver.support.wait import WebDriverWait
-from selenium.common.exceptions import TimeoutException
 
 from base.base_page import BasePage
-from config import TIMEOUT
 
 
 class ConsolePage(BasePage):
     """
-    课堂控制台页面对象（侦察来源：script/probe_console.py 实测 2026-11-04）
-    - 进入方式：课程详情页点"进入上课工作台"，同页跳转（无新标签页）
-    - URL 形态：/lessons/<数字id>（课堂，业务流程地图 §3 三级状态机的中间一级）
+    课堂回放页（当前讲次）页面对象（侦察来源：script/probe_l4_console_v2.py 实测 2026-11-14）
+
+    产品形态已随 11-14 界面改版重排（业务流程地图 §13.5）：
+    - 旧版"课堂工作台十项子导航"（tp-bc-sub-btn：签到/大屏/点名…）在当前 UI 里已不可见，
+      实时工作台推测只在真实开课/模拟上课期间存在——待以后侦察，本对象先不管
+    - 新版点课程卡片直达 /lessons/<id> 课后回放主页，巡览功能改成 7 个路径式子页面
+      （/attendance、/scoreboard、/questions、/discussions、/quality-report、
+      /class-report、/manage），入口是 a.llink 真链接
+    - 旧 drawer_close_btn 删除依据：新版回放页 el-drawer 实测 0 命中，抽屉机制已不存在
+    - 旧 back_to_course_btn（tp-nav-menu__home）删除依据：0 命中；回详情页统一走
+      CoursePage.back_to_course_btn（面包屑），不在两个页面对象里维护同一锚点
     """
 
-    # 子导航：tp-bc-sub-btn 家族（与课程详情页签同组件族 -> 行为同为局部面板切换，🟢 只读）
-    # 用 class 过滤把同名干扰排除在外：'签到进行中·46/50' 是 tp-spot 卡片、
-    # '打开演示大屏' 是 el-button，都不属于 sub-btn，点不到也定位不到
+    # 回放页巡览入口家族：a.llink（文字=功能名+一行说明，如"出勤明细 逐个改出勤状态"，
+    # 用 contains 前缀名匹配；同名文字也挂在 rv-link/el-button 上，class 把范围锁死在 llink 族）
     @staticmethod
-    def sub_btn(name):
+    def lesson_link(name):
         return (By.XPATH,
-                f"//button[contains(@class,'tp-bc-sub-btn')][contains(., '{name}')]")
+                f"//a[contains(@class,'llink')][contains(normalize-space(),'{name}')]")
 
-    # 抽屉（从屏幕边缘滑出的浮层面板）关闭按钮：侦察现场显示进入时抽屉是打开的
-    # 关闭一个浮层无业务副作用，🟢
-    drawer_close_btn = (By.CLASS_NAME, "el-drawer__close-btn")
-
-    # 返回课程详情（L4 的出口，🟢 导航）
-    back_to_course_btn = (By.XPATH, "//button[contains(@class, 'tp-nav-menu__home')]")
-
-    def is_sub_active(self, name, timeout=TIMEOUT):
-        """
-        子导航是否处于选中态（is-active，与 L3 页签同款判据）
-        为什么必须轮询等待而不是立刻读：侦察实测（probe_l4_active.py 2026-11-05）
-        is-active 是点击后约 0.5 秒才异步挂上的，点完立刻断言必竞态；
-        等法=一挂上马上返回 True，等满 timeout 没挂上才返回 False，又快又稳
-        """
-        def active(driver):
-            cls = driver.find_element(*self.sub_btn(name)).get_attribute("class") or ""
-            return "is-active" in cls
-        try:
-            WebDriverWait(self.driver, timeout).until(active)
-            return True
-        except TimeoutException:
-            return False
+    # 页面框架地标：顶部面包屑（新版所有页面都有；证明 SPA 框架渲染完成、没掉出站外）
+    crumb_marker = (By.CSS_SELECTOR, "a.ui-head__crumb")

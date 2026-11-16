@@ -13,6 +13,9 @@ Python 3.14 · Selenium 4 · pytest 9 · Allure · Edge WebDriver
 - **失败证据链**：pytest 钩子自动截图 + 运行日志，作为附件嵌入 Allure 报告
 - **副作用隔离**：有账号污染风险的用例打 negative 标签，默认执行自动排除
 - **配置安全**：敏感信息经 .env 注入（不入仓库），缺失时 fail-fast 报错
+- **TLS 校验单一开关**：被测为内网自签证书，是否绕过校验由 config.VERIFY_SSL 一处统一决定
+  （接口层 verify 与浏览器 --ignore-certificate-errors 同源），默认关闭仅限隔离测试环境，
+  严禁指向生产；拿到正式证书后置 true 即恢复正规校验
 
 ## 快速开始
 ```text
