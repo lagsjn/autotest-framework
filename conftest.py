@@ -13,10 +13,12 @@ from selenium.webdriver.edge.options import Options
 from config import (
     LOGIN_URL, BROWSER_DEBUG, USERNAME, PASSWORD, BASE_URL,
     STUDENT_LOGIN_URL, STUDENT_BASE_URL, STUDENT_USERNAME, STUDENT_PASSWORD,
+    VERIFY_SSL,
 )
 from pages.login_page import LoginPage
 from api.login_api import LoginApi
 from api.course_api import CourseApi
+from api.lesson_api import LessonApi
 
 # log 目录专门放运行产物：日志 + 失败截图（以后不提交到 git）
 LOG_DIR = os.path.join(os.path.dirname(__file__), "log")
@@ -34,6 +36,9 @@ def _setup_logger():
         return lg
     lg.setLevel(logging.INFO)
     fmt = logging.Formatter("%(asctime)s [%(levelname)s] %(message)s", datefmt="%H:%M:%S")
+    # log/ 在 .gitignore 里，干净环境（如 CI  runner）检出的仓库根本没这目录：
+    # 不先建目录，下面 FileHandler 开文件直接 FileNotFoundError（本地永远踩不到）
+    os.makedirs(LOG_DIR, exist_ok=True)
     console = logging.StreamHandler(sys.stdout)
     console.setFormatter(fmt)
     # mode="w"：每次跑全量前清掉上次日志，防止新旧混着看不出问题
@@ -53,7 +58,11 @@ def _make_browser():
     同样走一遍"忽略自签证书 + 调试时不关窗 + 最大化"，复制三处将来必漏改
     """
     edge_options = Options()
-    edge_options.add_argument('--ignore-certificate-errors')
+    # 是否忽略证书错误由 config.VERIFY_SSL 总开关决定（与接口层 verify 同步）：
+    # 默认 VERIFY_SSL=False（自签测试环境）才加 --ignore-certificate-errors；
+    # 正规校验档（True）不能加，否则等于把刚打开的校验又绕过，白改
+    if not VERIFY_SSL:
+        edge_options.add_argument('--ignore-certificate-errors')
     if BROWSER_DEBUG:
         # 只在调试时开：跑完不关浏览器，方便你看页面
         # 正式跑/CI 必须把 config.py 里的 BROWSER_DEBUG 改成 False，否则进程会残留
@@ -175,8 +184,27 @@ def login_api():
 
 @pytest.fixture(scope="function")
 def course_api():
-    """课程接口对象"""
+    """课程接口对象（默认老师端 8081）"""
     return CourseApi()
+
+
+@pytest.fixture(scope="function")
+def lesson_api():
+    """讲次接口对象（默认老师端 8081）：上课状态机 E2E 专用
+    独立于 course_api——讲次是课程下的子资源，职责分开，改讲次接口不波及课程用例
+    """
+    return LessonApi()
+
+
+@pytest.fixture(scope="function")
+def student_course_api():
+    """学生端地址的课程接口对象（E2E 加入课程专用）
+    为什么不复用 course_api：同一个业务接口从不同入口进去代表不同身份语境，
+    上轮实测虽然“同身份两端返回一致”，但学生加入这类写操作照 UI 真实行为走 8082，
+    不让用例依赖“两端恰好等价”这个偶然事实
+    未配学生端时本 fixture 不会被实例化（依赖它的用例先 skipif）
+    """
+    return CourseApi(base_url=STUDENT_BASE_URL)
 
 
 @pytest.fixture(scope="session")

@@ -18,6 +18,18 @@ if not all([BASE_URL, USERNAME, PASSWORD]):
         "缺少敏感配置：请复制 .env.example 为 .env 并填入真实值（该文件不进 git）"
     )
 
+# ============ TLS 证书校验开关（测试环境专用，全局唯一） ============
+# 被测系统是内网测试机 + 自签名 HTTPS 证书（demo.test-env.local:8081），没有公网 CA 背书，
+# 正规校验必然失败。历史上我们把"绕过校验"散着写在 11 个文件里（base_api 的 verify=False、
+# conftest 的 --ignore-certificate-errors、以及一堆侦察脚本），改一处忘九处。现在收成一个开关：
+#   VERIFY_SSL=False（默认）：关掉校验——接口层 requests 走 verify=False 并抑制
+#       InsecureRequestWarning，浏览器层 Edge 加 --ignore-certificate-errors。
+#       这是"绕过证书校验"，属于不安全做法，只允许用于这套隔离测试环境，严禁指向生产。
+#   VERIFY_SSL=True：开启校验——需要先把服务器证书导入系统受信任根存储（浏览器）、
+#       并提供 CA/证书路径（接口），否则连接直接被拒。拿到正式证书再切这一档。
+# 要改这个行为只改这一处（或在 .env 里加 TEST_VERIFY_SSL=true），不要再回各文件散着改。
+VERIFY_SSL = os.getenv("TEST_VERIFY_SSL", "false").strip().lower() in ("1", "true", "yes", "on")
+
 # ============ 扩展身份：可选资源，缺失不炸场（缺值处理分级） ============
 # 学生号 demo_student（L5 跨端）与废弃老师号 demo_deprecated（negative/红级专用）由老师批复。
 # 密码只住 .env（git 拉黑），代码里只读取、不落真值。
