@@ -7,5 +7,8 @@ pytest==9.1.1
 allure-pytest==2.16.2
 # 从 .env 文件读敏感配置（代码里不落真实账号密码）
 python-dotenv
+# 数据驱动：读 data/*.yaml 测试数据（CI 首跑抓出的漏网之鱼：本地手装过但没进清单，
+# 干净机器按清单装环境就会 ModuleNotFoundError: No module named 'yaml'）
+PyYAML==6.0.3
 # 接口自动化：发 HTTP 请求的迷你工具包（api/ 层依赖）
 requests==2.34.2
