@@ -87,7 +87,16 @@ jobs:
       - name: 跑冒烟用例（smoke 档：登录主链路 + 进课/页签/回放的 UI 主干）
         # -m smoke 同时选中标了 smoke 的接口用例和 UI 用例，重复跑接口那两条成本可忽略；
         # 本地已预演：无头模式 8 条全过（2026-11-18）
-        run: pytest -m smoke -v
+        # 重试兜底：runner 在美国、被测系统在阿里云中国，浏览器跨境加载整页 SPA 时好时坏
+        # （2026-11-18 实锤：同代码一次绿一次 ReadTimeout，接口 job 同时全绿——小请求不受影响）；
+        # 跨境抖动不可控，整轮重跑最多 3 次，任一轮全绿即通过；战略解法是自托管 runner（见笔记）
+        run: |
+          for attempt in 1 2 3; do
+            if pytest -m smoke -v; then exit 0; fi
+            echo "第 $attempt 次未通过，等 30 秒后重试（等跨境链路恢复）"
+            sleep 30
+          done
+          echo "3 次均未通过"; exit 1
 
       - name: 上传 allure 结果与失败截图（失败也传）
         if: always()
