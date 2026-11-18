@@ -56,3 +56,45 @@ jobs:
           name: allure-results
           path: allure-results/
           retention-days: 7         # 云端产物只留一周，看报告拉回本地 allure serve 即可
+
+  ui-smoke:
+    name: UI 冒烟（无头 Edge）
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # 与 api-tests 并行独立跑：UI 偶发波动不该把接口档的结果一起抹掉，两边红各自查
+
+    env:
+      TEST_BASE_URL: ${{ secrets.TEST_BASE_URL }}
+      TEST_USERNAME: ${{ secrets.TEST_USERNAME }}
+      TEST_PASSWORD: ${{ secrets.TEST_PASSWORD }}
+      TEST_STUDENT_BASE_URL: ${{ secrets.TEST_STUDENT_BASE_URL }}
+      TEST_STUDENT_USERNAME: ${{ secrets.TEST_STUDENT_USERNAME }}
+      TEST_STUDENT_PASSWORD: ${{ secrets.TEST_STUDENT_PASSWORD }}
+      TEST_VERIFY_SSL: "false"
+      HEADLESS: "true"   # conftest 认这个环境变量切无头浏览器：云端没有显示器，不无头必挂
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 准备 Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: 安装依赖
+        run: pip install -r requirements.txt
+
+      - name: 跑冒烟用例（smoke 档：登录主链路 + 进课/页签/回放的 UI 主干）
+        # -m smoke 同时选中标了 smoke 的接口用例和 UI 用例，重复跑接口那两条成本可忽略；
+        # 本地已预演：无头模式 8 条全过（2026-11-18）
+        run: pytest -m smoke -v
+
+      - name: 上传 allure 结果与失败截图（失败也传）
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ui-allure-results
+          path: |
+            allure-results/
+            log/screenshot/
+          retention-days: 7

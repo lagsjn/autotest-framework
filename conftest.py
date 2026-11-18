@@ -63,12 +63,21 @@ def _make_browser():
     # 正规校验档（True）不能加，否则等于把刚打开的校验又绕过，白改
     if not VERIFY_SSL:
         edge_options.add_argument('--ignore-certificate-errors')
+    # 无头模式（headless）：环境变量 HEADLESS=true 时浏览器不弹窗口。
+    # CI 的云端机器没有显示器和桌面环境，会弹窗口的启动方式必挂；
+    # 本地不配这个环境变量就照旧有头调试，一套代码两头跑
+    if os.getenv("HEADLESS", "").strip().lower() in ("1", "true", "yes", "on"):
+        edge_options.add_argument('--headless=new')      # 新版无头内核，渲染行为与有头一致
+        edge_options.add_argument('--no-sandbox')        # 容器内以管理员身份跑时 Chrome 系必需
+        edge_options.add_argument('--disable-dev-shm-usage')  # 容器共享内存小，防页面被杀
+        edge_options.add_argument('--window-size=1920,1080')  # 无头没有"最大化"可调，用固定视口
     if BROWSER_DEBUG:
         # 只在调试时开：跑完不关浏览器，方便你看页面
         # 正式跑/CI 必须把 config.py 里的 BROWSER_DEBUG 改成 False，否则进程会残留
         edge_options.add_experimental_option("detach", True)
     dr = webdriver.Edge(options=edge_options)
-    dr.maximize_window()
+    if not os.getenv("HEADLESS", "").strip().lower() in ("1", "true", "yes", "on"):
+        dr.maximize_window()
     return dr
 
 
