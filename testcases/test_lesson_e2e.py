@@ -265,25 +265,28 @@ def test_lesson_flow_save_persists(course_api, lesson_api, api_token):
 @allure.story("加一个合法自定义步并真落库（步数+1）")
 @pytest.mark.lesson_e2e
 def test_lesson_flow_add_valid_step_persists(course_api, lesson_api, api_token):
-    """正向写场景（kind 白名单侦察铺的路）：在默认流程 [signin,end] 中插一个合法自定义步→回读步数+1。
+    """正向写场景（kind 白名单侦察铺的路）：在默认流程中插一个合法自定义步→回读步数+1。
     实测 kind 白名单共7个（signin/slides/quiz/discussion/demo/rollcall/end），其中只有 rollcall 不依赖
     任何外部资源（slides/quiz/demo 需真实课件/测验/演示 id，伪造会撞 40002“不存在或不属于”），
     故本用例选 rollcall（点名）做纯沙箱可自证的“加合法步”。
-    断言不只看 PUT 200：独立 GET 回读才钉住“新步真落库”（步数 2→3、新 kind 在 signin 与 end 之间、saved 变 true）。
+    断言不只看 PUT 200：独立 GET 回读才钉住“新步真落库”（比基准多一步、新 kind 在 end 之前、saved 变 true）。
+    ⚠ 不断死默认模板的绝对内容：被测系统在开发中，2026-11-18 CI 抓到默认模板从
+      [signin,end] 变成 [signin,intro,end]（产品迭代不是代码坏）——用例只钉“我插入的那一步”
+      这个相对变化，环境现状以实读到为准，避免脆断言。
     """
     course_id, course_name = _make_sandbox_course(course_api, api_token)
     lesson_id = None
 
     try:
-        with allure.step("建讲次（draft）并读默认 flow（应为 [signin,end] 两步）"):
+        with allure.step("建讲次（draft）并读默认 flow 作基准（只断结构：首 signin、尾 end）"):
             resp = lesson_api.create_lesson(
                 api_token, course_id, title="AT 加合法步", week_no=1, weekday=3, period="78")
             assert resp.status_code == 200, f"建讲次应 200，实际 {resp.status_code}：{resp.text[:300]}"
             lesson_id = _data(resp).get("id")
             base_steps = _data(lesson_api.get_flow(api_token, lesson_id)).get("steps")
             kinds0 = [s.get("kind") for s in base_steps if isinstance(s, dict)]
-            assert kinds0 == ["signin", "end"], \
-                f"默认流程应为两步 [signin,end]，实际={kinds0}"
+            assert kinds0 and kinds0[0] == "signin" and kinds0[-1] == "end", \
+                f"默认流程首步应 signin、末步应 end，实际={kinds0}"
 
         with allure.step("PUT flow：在 end 前插一个合法自定义步 rollcall"):
             new_steps = list(base_steps)
@@ -295,12 +298,12 @@ def test_lesson_flow_add_valid_step_persists(course_api, lesson_api, api_token):
                 f"加合法步 rollcall 应 200，实际 {resp.status_code}：{resp.text[:300]}"
             assert (resp.json() or {}).get("code") == 0, "PUT flow 业务码应为 0"
 
-        with allure.step("GET 回读：步数 2→3、rollcall 落在 signin 与 end 之间、saved 变 true"):
+        with allure.step("GET 回读：比基准多一步 rollcall（插在 end 前）、saved 变 true"):
             kinds2, saved2 = _flow_kinds(lesson_api, api_token, lesson_id)
             assert kinds2 is not None, f"回读 steps 应可解析，实际={kinds2}"
-            assert len(kinds2) == 3, f"加一步后步数应为 3，实际 steps={kinds2}"
-            assert kinds2 == ["signin", "rollcall", "end"], \
-                f"回读步序应为 [signin,rollcall,end]，实际={kinds2}"
+            expected = kinds0[:pos] + ["rollcall"] + kinds0[pos:]
+            assert kinds2 == expected, \
+                f"回读步序应为基准插入 rollcall 后的 {expected}，实际={kinds2}"
             assert saved2 is True, \
                 f"自定义后回读应 saved=True，实际={saved2}——新增步未真落库"
     finally:
