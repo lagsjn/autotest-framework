@@ -12,3 +12,9 @@ python-dotenv
 PyYAML==6.0.3
 # 接口自动化：发 HTTP 请求的迷你工具包（api/ 层依赖）
 requests==2.34.2
+# SQL 交叉验证：连本地 MySQL 8.0 跑验证查询的驱动（script/sql_verify_mysql.py 依赖；
+# 凭证不写代码不进仓库，从源码目录 backend\.env 读，见该脚本头部说明）
+pymysql==1.2.4
+# 性能测试：压测脚本引擎（perf/locustfile_*.py 依赖；它带的 gevent 是协程库，
+# 单个进程就能跑几百个虚拟用户；已实测兼容本项目 Python 3.14）
+locust==2.47.0
