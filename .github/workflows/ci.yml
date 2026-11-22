@@ -43,19 +43,24 @@ jobs:
       - name: 跑只读接口档（登录/鉴权矩阵，不写数据）
         # 这两个文件全是绿级只读用例；addopts 的默认排除档对它们无影响（未带写标签）
         # 注意：不能直接用 -m smoke 选——smoke 标签同时挂在 UI 用例上，CI 第一步没浏览器
-        run: pytest testcases/test_api_login.py testcases/test_api_authz.py -v
+        # --junitxml：只产出结果汇总（用例名+通过/失败），不碰含运行日志的 allure-results
+        run: pytest testcases/test_api_login.py testcases/test_api_authz.py -v --junitxml=junit-api.xml
 
       - name: 跑接口 E2E 写档（自建 AT-* 沙箱、用例内自清理）
         # 命令行 -m 会覆盖 pytest.ini addopts 里的 -m（后者优先）；negative/l5 继续不进 CI
-        run: pytest -m "api_e2e or lesson_e2e" -v
+        run: pytest -m "api_e2e or lesson_e2e" -v --junitxml=junit-e2e.xml
 
-      - name: 上传 allure 结果（失败也传，方便查挂在哪）
+      - name: 上传 JUnit 结果汇总（失败也传）
         if: always()
+        # 【为什么不传 allure-results】公开仓库的 Actions 产物不需要登录就能下载，
+        # 而 allure-results 里的日志附件带着环境真值（完整请求地址+端口），
+        # 参数化实参带着真实账号——.gitignore 只拦仓库文件，拦不住 artifact。
+        # JUnit XML 只有用例名与结果状态，没有运行时真值，可以公开
         uses: actions/upload-artifact@v4
         with:
-          name: allure-results
-          path: allure-results/
-          retention-days: 7         # 云端产物只留一周，看报告拉回本地 allure serve 即可
+          name: junit-summary
+          path: junit-*.xml
+          retention-days: 7         # 完整报告本地生成：把结果数据拉回本地跑 allure serve 即可
 
   ui-smoke:
     name: UI 冒烟（无头 Edge）
@@ -92,18 +97,18 @@ jobs:
         # 跨境抖动不可控，整轮重跑最多 3 次，任一轮全绿即通过；战略解法是自托管 runner（见笔记）
         run: |
           for attempt in 1 2 3; do
-            if pytest -m smoke -v; then exit 0; fi
+            if pytest -m smoke -v --junitxml=junit-ui.xml; then exit 0; fi
             echo "第 $attempt 次未通过，等 30 秒后重试（等跨境链路恢复）"
             sleep 30
           done
           echo "3 次均未通过"; exit 1
 
-      - name: 上传 allure 结果与失败截图（失败也传）
+      - name: 上传 JUnit 结果汇总（失败也传）
         if: always()
+        # 同上：不上传 allure-results 与 log/screenshot/（截图拍的是被测系统真实界面，
+        # 属于内部细节）；这两类证据只在本地报告里看，面试现场演示
         uses: actions/upload-artifact@v4
         with:
-          name: ui-allure-results
-          path: |
-            allure-results/
-            log/screenshot/
+          name: ui-junit-summary
+          path: junit-ui.xml
           retention-days: 7
