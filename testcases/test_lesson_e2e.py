@@ -363,5 +363,213 @@ def test_lesson_flow_invalid_kind_rejected(course_api, lesson_api, api_token):
                         f"[lesson_e2e 清理失败，需手动归档 id={course_id} name={course_name}] {e}")
 
 
+# ---------- 流程结构规则（源码 normalize_steps 四条约束，2026-11-21 读 Service/lesson_flow_service.py）-----
+# 设计要点（都是源码读出来的，不是猜的）：
+# ① 四步构造都完全自持（自己写死 steps），不依赖环境当前默认模板内容——
+#    默认模板在迭代中（CI 曾抓到 [signin,end]变[signin,intro,end]），依赖它会脆断；
+# ② steps 只用 signin/intro/end 三种不引用外部资源的 kind，绕开课件/测验/演示的引用校验分支，
+#     pure 沙箱可自证（滑入 slides/quiz 会先撞 40002“不存在或不属于”，测不到目标准则）；
+# ③ “end 不在最后”靠把唯一的 end 移到首位构造，不能用“往中间插一个 end”：
+#    源码 count(END)>1 的检查在 kinds[-1]!=END 之前，插两个会先命中“下课只能有一个”，测不到目标规则。
+_FLOW_RULE_CASES = [
+    pytest.param([{"kind": "signin"}, {"kind": "signin"}, {"kind": "end"}], "签到",
+                 id="signin 重复"),
+    pytest.param([{"kind": "signin"}, {"kind": "intro"}, {"kind": "intro"}, {"kind": "end"}], "导入",
+                 id="intro 重复"),
+    pytest.param([{"kind": "signin"}, {"kind": "end"}, {"kind": "end"}], "下课环节只能有一个",
+                 id="end 重复"),
+    pytest.param([{"kind": "end"}, {"kind": "signin"}], "最后",
+                 id="end 不在末尾"),
+]
+
+
+@allure.feature("接口E2E-上课流程")
+@allure.story("流程结构规则被拒（400/40002语义层）")
+@pytest.mark.lesson_e2e
+@pytest.mark.parametrize("bad_steps,kw", _FLOW_RULE_CASES)
+def test_flow_structure_rule_rejected(course_api, lesson_api, api_token, bad_steps, kw):
+    """负向写场景（源码反推 predict-then-verify）：违反结构规则应 400 + 业务码 40002
+    这条用例同时断两件事，都是源码读出来的预测，跑不过就说明我们对系统的理解有误：
+      ① 码是 40002（PARAM_VALUE_ILLEGAL 语义层）而不是 40001（枚举层）——两者是同接口不同层；
+      ② 报错形态与 40001 不同：40002 由 BizException 直接抛，data 默认 None（不是字段错误 list），
+         提示语是中文人话（如“下课环节要放在最后”），所以这里断 message 含关键词、不断 data 是 list。
+    被拒后必须回读确认没落库（拒了不能悄悄存）。
+    """
+    course_id, course_name = _make_sandbox_course(course_api, api_token)
+    lesson_id = None
+
+    try:
+        with allure.step("建讲次（draft）并读默认流程作基准"):
+            resp = lesson_api.create_lesson(
+                api_token, course_id, title="AT 结构规则", week_no=1, weekday=3, period="78")
+            assert resp.status_code == 200, f"建讲次应 200，实际 {resp.status_code}：{resp.text[:300]}"
+            lesson_id = _data(resp).get("id")
+            base_kinds, _ = _flow_kinds(lesson_api, api_token, lesson_id)
+
+        with allure.step(f"PUT 违规 steps（{[s['kind'] for s in bad_steps]}）→ 应 400/40002"):
+            resp = lesson_api.put_flow(api_token, lesson_id, {"steps": bad_steps})
+            assert resp.status_code == 400, \
+                f"违反结构规则应 400，实际 {resp.status_code}：{resp.text[:300]}"
+            body = resp.json() or {}
+            # 断语义层码：40002 不是 40001（同一个接口上两层拦截，报的码代的是不同团队的责任层）
+            assert body.get("code") == 40002, \
+                f"业务码应为 40002(参数值非法)，实际={body.get('code')}：{resp.text[:300]}"
+            assert kw in (body.get("message") or ""), \
+                f"提示语应含“{kw}”，实际={body.get('message')!r}"
+            # 形态预测：语义层报错带的是单条中文提示，data 默认 None（与 40001 的 list 形态不同）
+            assert not isinstance(body.get("data"), list), \
+                f"40002 的 data 不应是字段错误 list（那是 40001 的形态），实际={body.get('data')!r}"
+
+        with allure.step("GET 回读：违规流程不应落库"):
+            kinds2, _ = _flow_kinds(lesson_api, api_token, lesson_id)
+            assert kinds2 == base_kinds, \
+                f"被拒的 PUT 不应改变流程，基准={base_kinds}，实际={kinds2}"
+    finally:
+        if course_id:
+            with allure.step("收尾：归档自建沙箱课"):
+                try:
+                    course_api.archive_course(api_token, course_id)
+                except Exception as e:
+                    logging.getLogger("autotest").warning(
+                        f"[lesson_e2e 清理失败，需手动归档 id={course_id} name={course_name}] {e}")
+
+
+@allure.feature("接口E2E-上课流程")
+@allure.story("重置流程真丢弃自定义（DELETE 硬删）")
+@pytest.mark.lesson_e2e
+def test_lesson_flow_reset_restores_default(course_api, lesson_api, api_token):
+    """正向写场景：自定义→重置→回读，断三步真落库而不是只看接口返 200
+    源码依据 lesson_flow_service.reset_flow：调 delete_steps 硬删已存流程，再走 get_flow 现算默认。
+    所以重置后的特征不是“saved=True 且内容等于默认”，而是 **saved 跳回 False**（保存记录被丢了）；
+    这个区分是关键：若只看步序变默认，分不清“硬删后重算”和“复制了一份默认并覆盖”。
+    用 rollcall 做自定义步（不依赖外部资源）。本用例全程 draft，不依赖老师是否空闲。
+    """
+    course_id, course_name = _make_sandbox_course(course_api, api_token)
+    lesson_id = None
+
+    try:
+        with allure.step("建讲次（draft）并读默认流程基准"):
+            resp = lesson_api.create_lesson(
+                api_token, course_id, title="AT 重置流程", week_no=1, weekday=3, period="78")
+            assert resp.status_code == 200, f"建讲次应 200，实际 {resp.status_code}：{resp.text[:300]}"
+            lesson_id = _data(resp).get("id")
+            base_kinds, saved0 = _flow_kinds(lesson_api, api_token, lesson_id)
+            # ⚠ 形状陷阱（本轮实测踩出来的）：_flow_kinds 返回的是 kind 字符串列表（读用的派生视图），
+            # PUT 要的是对象列表 [{"kind":...},...]（写用的原始结构）；两者混用服务端直接 40001
+            # “Input should be a valid dictionary or object”——这里必须另取一次 steps 原始 dict。
+            base_steps = _data(lesson_api.get_flow(api_token, lesson_id)).get("steps")
+            assert saved0 is False, f"新建讲次应 saved=False，实际={saved0}"
+
+        with allure.step("先 PUT 自定义（插 rollcall）→ 回读 saved=True 且含 rollcall，把‘已保存’状态做出来"):
+            pos = next((i for i, k in enumerate(base_kinds) if k == "end"), len(base_kinds))
+            expected_kinds = base_kinds[:pos] + ["rollcall"] + base_kinds[pos:]
+            new_steps = base_steps[:pos] + [{"kind": "rollcall"}] + base_steps[pos:]
+            resp = lesson_api.put_flow(api_token, lesson_id, {"steps": new_steps})
+            assert resp.status_code == 200, f"自定义 PUT 应 200，实际 {resp.status_code}：{resp.text[:300]}"
+            kinds1, saved1 = _flow_kinds(lesson_api, api_token, lesson_id)
+            assert saved1 is True and kinds1 == expected_kinds, \
+                f"重置前应先自定义成功（saved=True），实际 saved={saved1} kinds={kinds1}"
+
+        with allure.step("DELETE /flow 重置 → 断 saved 跳回 False 且自定义步硬删"):
+            resp = lesson_api.reset_flow(api_token, lesson_id)
+            assert resp.status_code == 200, \
+                f"重置流程应 200，实际 {resp.status_code}：{resp.text[:300]}"
+            assert (resp.json() or {}).get("code") == 0, "重置业务码应为 0"
+            kinds2, saved2 = _flow_kinds(lesson_api, api_token, lesson_id)
+            # 关键断言：重置是“丢弃保存”不是“写入默认”，所以 saved 必回 False
+            assert saved2 is False, \
+                f"重置后 saved 应回到 False（保存记录被硬删），实际={saved2}"
+            assert "rollcall" not in (kinds2 or []), \
+                f"重置后自定义步 rollcall 应消失，实际={kinds2}"
+            assert kinds2 == base_kinds, \
+                f"重置后应等于重置前的默认步序 {base_kinds}，实际={kinds2}"
+    finally:
+        if course_id:
+            with allure.step("收尾：归档自建沙箱课"):
+                try:
+                    course_api.archive_course(api_token, course_id)
+                except Exception as e:
+                    logging.getLogger("autotest").warning(
+                        f"[lesson_e2e 清理失败，需手动归档 id={course_id} name={course_name}] {e}")
+
+
+@allure.feature("接口E2E-上课状态机")
+@allure.story("下课后流程进入只读（400/40003）且重复下课幂等")
+@pytest.mark.lesson_e2e
+def test_flow_readonly_after_ended(course_api, lesson_api, api_token):
+    """状态守卫：走完整条状态机到 ended 后，改流程的两条写入口（PUT/DELETE）都应及时拒
+    源码依据 save_flow/reset_flow 开头都有：status==ENDED → STATE_NOT_ALLOWED(40003)
+      “这一讲已经下课，流程不能再改”——两个入口守卫应一致，这本身就是要测的点
+      （只改一处、漏另一处是这类守卫最常见的一致性缺陷）。
+    同行附带断一条：router 注释写了 end “对已结束的课堂幂等成功”，所以重复 end 应仍是 200。
+    依赖环境：需测试老师当下无其他 ongoing 课堂，否则 start 撞 409 → skip（不是产品 bug）。
+    """
+    course_id, course_name = _make_sandbox_course(course_api, api_token)
+    lesson_id = None
+    ended = False
+
+    try:
+        with allure.step("建讲次并跑到 ended（draft→ongoing→ended）"):
+            resp = lesson_api.create_lesson(
+                api_token, course_id, title="AT 下课只读", week_no=1, weekday=3, period="78")
+            assert resp.status_code == 200, f"建讲次应 200，实际 {resp.status_code}：{resp.text[:300]}"
+            lesson_id = _data(resp).get("id")
+            base_steps = _data(lesson_api.get_flow(api_token, lesson_id)).get("steps")
+
+            r = lesson_api.start_lesson(api_token, lesson_id)
+            if r.status_code == 409:
+                pytest.skip("测试老师已有进行中真实课堂，本用例需空闲环境（先下课或换账号）："
+                            f"{(r.json() or {}).get('message', '')}")
+            assert r.status_code == 200, f"start 应 200，实际 {r.status_code}：{r.text[:300]}"
+            r = lesson_api.end_lesson(api_token, lesson_id)
+            assert r.status_code == 200, f"end 应 200，实际 {r.status_code}：{r.text[:300]}"
+            ended = True
+            assert _status(lesson_api.get_lesson(api_token, lesson_id)) == "ended"
+
+        with allure.step("重复 end：应幂等成功（源码声明），不是报错也不是 409"):
+            r = lesson_api.end_lesson(api_token, lesson_id)
+            assert r.status_code == 200, \
+                f"已结束的讲次重复 end 应幂等 200，实际 {r.status_code}：{r.text[:300]}"
+            assert _status(lesson_api.get_lesson(api_token, lesson_id)) == "ended", \
+                "重复下课不应改变状态"
+
+        with allure.step("ended 后 PUT flow：应被状态守卫拒 400/40003"):
+            bad = [{"kind": "signin"}, {"kind": "rollcall"}, {"kind": "end"}]
+            r = lesson_api.put_flow(api_token, lesson_id, {"steps": bad})
+            assert r.status_code == 400, \
+                f"下课后代改流程应 400，实际 {r.status_code}：{r.text[:300]}"
+            body = r.json() or {}
+            assert body.get("code") == 40003, \
+                f"业务码应为 40003(当前状态不允许)，实际={body.get('code')}"
+
+        with allure.step("ended 后 DELETE flow：另一入口守卫应一致，同样 400/40003"):
+            r = lesson_api.reset_flow(api_token, lesson_id)
+            assert r.status_code == 400, \
+                f"下课后重置流程应同样被拒(400)，实际 {r.status_code}：{r.text[:300]}"
+            assert (r.json() or {}).get("code") == 40003, \
+                f"重置入口业务码也应为 40003，实际={(r.json() or {}).get('code')}"
+
+        with allure.step("两个入口被拒后，流程应还是下课前的内容（拒了不能partial写入）"):
+            kinds2, _ = _flow_kinds(lesson_api, api_token, lesson_id)
+            base_kinds = [s.get("kind") for s in base_steps if isinstance(s, dict)]
+            assert kinds2 == base_kinds, \
+                f"被拒的写不应改变流程，下课基准={base_kinds}，实际={kinds2}"
+    finally:
+        # 本用例已走到 ended（或 start 前就挂）→ 不会有僵尸 ongoing；仅当 start 后、end 前异常才需补下课
+        if lesson_id and not ended:
+            try:
+                if _status(lesson_api.get_lesson(api_token, lesson_id)) == "ongoing":
+                    lesson_api.end_lesson(api_token, lesson_id)
+            except Exception as e:
+                logging.getLogger("autotest").warning(f"[补下课失败 id={lesson_id}] {e}")
+        if course_id:
+            with allure.step("收尾：归档自建沙箱课"):
+                try:
+                    course_api.archive_course(api_token, course_id)
+                except Exception as e:
+                    logging.getLogger("autotest").warning(
+                        f"[lesson_e2e 清理失败，需手动归档 id={course_id} name={course_name}] {e}")
+
+
 if __name__ == "__main__":
     pytest.main(["-v", "-s", "-m", "lesson_e2e", __file__])

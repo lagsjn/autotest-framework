@@ -67,6 +67,26 @@ class LessonApi(BaseApi):
           - 成功后 message="流程已保存"，且 saved 由服务端置 true（不认客户端传的 false）；
           - steps 里每项的 kind 是受限枚举：signin/end 合法，courseware 等非法值 → 400/40001，
             且 data 是字段错误 list（命中行如 steps.1.kind 取值不在允许范围内）。
+        源码规则（2026-11-21 读 Service/lesson_flow_service.py + Utils/exceptions.py 坐实，
+        错误码编码规则=HTTP状态码×100+序号）分两层拦截，两层报错形态不同，用例要分开断言：
+          【枚举层 40001 PARAM_INVALID】Pydantic 字段校验，kind 不在 8 值白名单；data=list
+          【语义层 40002 PARAM_VALUE_ILLEGAL】normalize_steps 的四条约束：
+              signin 多于一个 / intro 多于一个 / end 多于一个 / end 不在最后一位
+              → data 不是 list（BizException 默认 data=None），message 是中文人话
+          【状态层 40003 STATE_NOT_ALLOWED】讲次 status=ended 后拒改流程
+              → "这一讲已经下课，流程不能再改"
         ⚠ 只对自建沙箱讲次调用（写操作）；不碰演示课/真实课堂的 flow
         """
         return self.put(f"/lessons/{lesson_id}/flow", token=token, json=body)
+
+    def reset_flow(self, token: str, lesson_id):
+        """重置上课流程 DELETE /lessons/{id}/flow（无 body）
+        源码依据 Routers/lesson_router.py:147-155 + Service/lesson_flow_service.py:220-227：
+          - 动作是 delete_steps（真删掉已保存的自定义步），回到“按本讲资料现算”的默认流程；
+          - 因此回读应 saved=False（不是“恢复上次保存”而是“丢弃保存”）；
+          - 与 PUT 同受状态守卫：讲次 ended 后 → 400/40003，与 PUT 同一句提示语。
+        ⚠ 注意：“DELETE 在本系统里不代表统一含义”——DELETE /courses/{id} 是软删归档，
+          而 DELETE /lessons/{id}/flow 是硬删自定义流程回到默认；同一个方法名两种副作用，必须实测。
+        ⚠ 只对自建沙箱讲次调用
+        """
+        return self.delete(f"/lessons/{lesson_id}/flow", token=token)
