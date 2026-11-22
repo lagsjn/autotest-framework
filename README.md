@@ -1,26 +1,75 @@
-# Web UI 自动化测试框架（pytest + Selenium + Allure）
+# 辅助教学系统自动化测试框架（pytest + requests + Selenium + Locust + Allure + CI）
 
-基于真实业务系统（私有环境）搭建的 POM 分层自动化框架，覆盖「用例设计 → 数据驱动 → 执行提速 → 失败留证 → 报告输出」完整链路。
+基于真实业务系统（私有测试环境）从 0 搭建的三层自动化测试工程：接口层、Web UI 层、性能层，
+覆盖「侦察探路 → 用例设计 → 数据驱动 → 执行提速 → 失败留证 → 报告输出 → CI 流水线」完整链路。
+
+**规模**：56 条自动化用例（35 条默认只读执行；21 条写操作按标签隔离，需显式开启且用例内自动清理沙箱数据）
 
 ## 技术栈
-Python 3.14 · Selenium 4 · pytest 9 · Allure · Edge WebDriver
 
-## 核心能力
-- **POM 分层**：base（等待/交互封装）→ pages（定位器与页面动作）→ testcases（纯断言逻辑）
-- **数据驱动**：用例输入与预期（expect）全部外置 YAML，新增用例不改代码
-- **登录态复用**：session 级 fixture 共享登录态 + function 级"页面归位"，兼顾速度与隔离
-- **瞬时提示可靠捕获**：MutationObserver 点击前埋点，解决 2 秒自动消失 toast 的漏抓问题（flaky 治理）
-- **失败证据链**：pytest 钩子自动截图 + 运行日志，作为附件嵌入 Allure 报告
-- **副作用隔离**：有账号污染风险的用例打 negative 标签，默认执行自动排除
-- **配置安全**：敏感信息经 .env 注入（不入仓库），缺失时 fail-fast 报错
-- **TLS 校验单一开关**：被测为内网自签证书，是否绕过校验由 config.VERIFY_SSL 一处统一决定
-  （接口层 verify 与浏览器 --ignore-certificate-errors 同源），默认关闭仅限隔离测试环境，
-  严禁指向生产；拿到正式证书后置 true 即恢复正规校验
+Python 3.14 · pytest 9 · requests · Selenium 4（Edge）· Locust · Allure · GitHub Actions
+
+## 架构分层
+
+```text
+api/         接口层：BaseApi 统一会话/鉴权/日志，业务类只管"发哪个接口"
+base/        UI 底座：显式等待、点击重试、toast 埋点监听、内容级文本断言（净文本算法）
+pages/       页面对象（POM）：定位器与页面动作，全部来自实测侦察，不猜
+testcases/   用例层：纯业务断言逻辑，接口/UI/跨层分文件
+data/        外置测试数据（YAML，占位符注入环境配置）
+script/      侦察脚本集：定位器与接口结构的"证据来源"，UI 改版先重跑侦察再改用例
+perf/        性能层：Locust 压测脚本 + 结果汇总（仅打本机被测进程，见红线声明）
+docs/        测试设计文档：用例文档、业务流程地图、接口地图、性能结论
+.github/     CI：接口 job + UI job（无头浏览器），敏感配置走 Secrets 注入
+```
+
+## 技术亮点
+
+- **侦察先行的用例工作流**：每条用例的定位器/请求结构都先由 probe 脚本在真实环境实测产出
+  （20+ 个侦察脚本入库留档），界面改版时"红灯 → 重跑侦察 → 对照证据修定位器"，不盲改断言
+- **跨层交叉断言**：同一份业务数据两头取两边对账——接口 `GET /flow` 的流程步骤 vs 大屏 UI
+  步骤条逐位比对；可单端各自"自洽"但集成断掉的 bug 无处遁形
+- **假绿防治**：断言改写反验证（变异测试思路：主动制造错误预期，确认用例真的会红）；
+  内容级锚点做**排他性体检**（一个文案只能属于一个页面，否则断言无信息量）
+- **负向用例从源码挖掘**：读后端校验函数推出枚举层/语义层/状态层三层拦截，
+  断言打业务码数字（编码规则：HTTP状态码×100+序号）并核对错误文案关键词，
+  多规则同码时用"message 关键词"锁定命中的具体规则
+- **副作用纪律**：写操作用例全部打标签默认排除（negative/l5/api_e2e/lesson_e2e/live），
+  沙箱数据唯一命名（AT-*），用例内自动下课/归档收尾，收尾异常只留痕不上抛；
+  残留自检脚本随时可证明"未归档沙箱 = 0"
+- **环境不满足 skip 而非 fail**：账号被占用等环境态与产品缺陷严格区分，CI 红灯永远等于真问题
+- **瞬时提示捕获**：MutationObserver 点击前埋点，解决 2 秒自动消失 toast 的轮询漏抓
+- **登录态复用**：session 级 fixture 共享登录 + function 级页面归位，速度与隔离兼顾；
+  多身份（师/生/第二教师）缺配时优雅降级跳过，不炸整条流水线
+- **失败证据链**：钩子自动截图 + 运行日志嵌入 Allure 报告，一封报告 = 完整案卷
+- **性能基线**：本机部署被测服务做容量探测，实测单机吞吐上限并用利特尔法则交叉验证，
+  结论沉淀为文档（客户端天花板、失真读数等四大陷阱有专门避坑记录）
+
+## 红线声明
+
+- 压测仅针对本机部署的被测进程，严禁对公司内网环境加压
+- 敏感配置全部 .env 注入（不入库），仓库内只有 .env.example 占位
+- 公司内部操作手册原件与含内部细节的答辩稿已被 .gitignore 拦在仓库外
 
 ## 快速开始
+
 ```text
 1. pip install -r requirements.txt
 2. 复制 .env.example 为 .env，填入测试环境地址与账号
-3. pytest testcases\test_login.py -v        # 跑默认用例
-4. pytest -m negative                        # 跑有副作用用例（需废弃账号）
-5. allure serve allure-results               # 查看可视化报告
+3. pytest -v                              # 默认只读链路（不含写标用例）
+4. pytest -m smoke                        # 冒烟
+5. pytest -m lesson_e2e / -m live         # 显式开启写标（会建沙箱数据，用例内自动清理）
+6. allure serve allure-results            # 可视化报告
+7. locust -f perf/locustfile_login.py     # 性能（--host 只允许指向本机）
+```
+
+## 用例地图
+
+| 文件 | 层 | 内容 | 标签 |
+|---|---|---|---|
+| test_login / test_api_login | UI/接口 | 登录正逆向、数据驱动、密码可见性 | 默认 + negative |
+| test_course / test_course_tabs | UI | 课程列表、页签巡览 | 默认 |
+| test_console_e2e | UI | 回放页 7 子页巡览 + 每页内容锚点 | 默认（1 条 smoke） |
+| test_api_e2e / test_l5_cross_enroll | 接口/跨端 | 建课→加入→归档链路、跨端选课 | api_e2e / l5 |
+| test_lesson_e2e | 接口 | 上课状态机 + flow 结构规则 + 守卫一致性（12 条） | lesson_e2e |
+| test_lesson_live | 跨层 | 实时工作台：flow 接口数据与大屏步骤条对账 | live |
