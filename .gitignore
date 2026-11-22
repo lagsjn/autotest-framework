@@ -14,3 +14,6 @@ allure-results/
 docs/
 # PDF 一律不入库（兜底防其他目录混入）
 *.pdf
+# 直连公司真库的侦察/验证脚本：含真实表列名与真库数据，只存本地供压测待办复用
+script/probe_perf_login_prep.py
+script/sql_verify_mysql.py
