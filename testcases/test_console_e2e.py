@@ -8,6 +8,15 @@ L4 课堂回放页只读巡礼（🟢 绿级）—— 2026-11-14 随界面改版
 - 安全边界：只点导航链接；子页面内部（如 /manage 的布置/发布、出勤页的标为请假）
   一律不碰——那是黄级写操作
 - 用例条数 10 -> 8（主页 1 + 巡礼站 7），--co 总数会相应减 2，属预期不是丢用例
+2026-11-22 补强（侦察来源：script/probe_l4_subpages.py 实跑，7 页逐页 dump 标题/表头/按钮）：
+原 8 条只断“URL 到站 + 面包屑在”，这两条都是**框架级**证据，不是内容级：
+实测发现【课堂质量报告】与【课后学情报告】两页的按钮完全同构（都是“生成记录/生成报告/补充说明（选填）”），
+明显共用同一个组件模板——若路由把两页接反正，只断 URL+面包屑根本发现不了。
+所以每页再加一条“只有本页才有”的文案锚点。选锚点三条纪律：
+  ① 选结构不选数据：能断“签到时间”这个表头，不能断“全部 50”（人数会变）、不能断“第 5 讲”（讲次会变）；
+  ② 入口文字 ≠ 页内标题（实测三对不一致）：“出勤明细”页内叫“签到”、“讨论记录”页内叫“课堂讨论”、
+     “课后学情报告”页内叫“班级学情报告”——拿菜单文字去页内找文本会直接挂，必须用侦察回来的页内原文；
+  ③ 空态文案不断（“还没有提问”这种等数据一来就消失），改断恒在的排序/筛选项（“高赞待答优先”）。
 """
 import allure
 import pytest
@@ -15,16 +24,17 @@ import pytest
 from pages.course_page import CoursePage
 from pages.console_page import ConsolePage
 
-# (入口文字关键词, URL 尾段正则)
+# (入口文字关键词, URL 尾段正则, 本页独有的内容锚点文案)
 # 冒烟只选一条代表站（标签贴单个参数上）：选"出勤明细"——回放页最核心的数据面
 REPLAY_PARAMS = [
-    pytest.param("出勤明细", r"attendance", marks=pytest.mark.smoke, id="attendance"),
-    pytest.param("本讲评分", r"scoreboard", id="scoreboard"),
-    pytest.param("学生提问", r"questions", id="questions"),
-    pytest.param("讨论记录", r"discussions", id="discussions"),
-    pytest.param("课堂质量报告", r"quality-report", id="quality"),
-    pytest.param("课后学情报告", r"class-report", id="class-report"),
-    pytest.param("管理随堂测与作业", r"manage", id="manage"),
+    pytest.param("出勤明细", r"attendance", ["签到时间", "迟到阈值"],
+                 marks=pytest.mark.smoke, id="attendance"),
+    pytest.param("本讲评分", r"scoreboard", ["总分", "成绩单"], id="scoreboard"),
+    pytest.param("学生提问", r"questions", ["高赞待答优先", "已忽略"], id="questions"),
+    pytest.param("讨论记录", r"discussions", ["开启讨论", "存为草稿"], id="discussions"),
+    pytest.param("课堂质量报告", r"quality-report", ["课堂质量报告", "生成记录"], id="quality"),
+    pytest.param("课后学情报告", r"class-report", ["班级学情报告", "生成记录"], id="class-report"),
+    pytest.param("管理随堂测与作业", r"manage", ["布置作业", "发布随堂测"], id="manage"),
 ]
 
 
@@ -56,15 +66,15 @@ def test_l4_replay_landing(fresh_page):
         # REPLAY_PARAMS 元素是 pytest.param(...) 包出来的 ParameterSet（values/marks/id 三字段的
         # NamedTuple），不是裸二元组；被 @pytest.mark.parametrize 用时 pytest 会自动拆 values，
         # 但这里是自己手写循环遍历，必须显式取 .values，否则直接解包会按 3 元组去拆 2 个变量报错
-        missing = [name for name, _ in (p.values for p in REPLAY_PARAMS)
+        missing = [name for name, _, _ in (p.values for p in REPLAY_PARAMS)
                    if not console.is_element_exist(console.lesson_link(name), timeout=3)]
         assert not missing, f"回放页缺少巡览入口：{missing}"
 
 
 @allure.feature("课堂模块")
 @allure.story("L4 回放页只读巡礼")
-@pytest.mark.parametrize("link_name,url_seg", REPLAY_PARAMS)
-def test_l4_replay_tour(fresh_page, link_name, url_seg):
+@pytest.mark.parametrize("link_name,url_seg,markers", REPLAY_PARAMS)
+def test_l4_replay_tour(fresh_page, link_name, url_seg, markers):
     console = _enter_replay(fresh_page)
 
     with allure.step(f"点击巡览入口：{link_name}"):
@@ -78,6 +88,16 @@ def test_l4_replay_tour(fresh_page, link_name, url_seg):
 
     with allure.step("断言页面框架仍在（双保险：没跳出站、框架渲染完整）"):
         # 独立路由页没有页签式"选中态"可查，用面包屑证明真的渲染出了目标页框架；
-        # 各子页面的内容级地标待后续侦察后再补强
         assert console.is_element_exist(console.crumb_marker, timeout=10), \
             f"URL 到站但【{link_name}】页框架没渲染（空白页/报错页？）"
+
+    with allure.step(f"内容级锚点：本页应出现只属于本页的文案 {markers}"):
+        # 上面三步只证明了“路由切对了、壳子渲染了”，本步才证明“这页真的是这个功能”。
+        # 报错时把“缺哪个/全部现状”一并带出来，否则只能看到“锚点缺失”无法分辨
+        # 是文案改版、还是页面白屏、还是路由串到了隔壁页。
+        missing = [m for m in markers
+                   if not console.has_visible_text(m, timeout=5)]
+        assert not missing, (
+            f"【{link_name}】页找不到本页专属文案 {missing}（当前 URL："
+            f"{fresh_page.current_url}）——要么文案改版，要么两页共用的组件被接反了"
+        )

@@ -108,6 +108,66 @@ class BasePage:
         except TimeoutException:
             return ""
 
+    # 内容级锚点专用 JS：逐元素算“净文本”（从文本来源上剪掉导航门牌子树）
+    _JS_HAS_VISIBLE_TEXT = """
+    const want = arguments[0];
+    const EXCLUDE = 'a.llink';   // 只排“巡览入口卡片”本身：那是别页的门牌
+    const norm = s => (s || '').replace(/\\s+/g, ' ').trim();
+    const nodes = [...document.querySelectorAll('body *')].filter(e => {
+        const r = e.getBoundingClientRect();
+        return r.width > 2 && r.height > 2;      // 只看看得见的
+    });
+    // 倒序遍历：先算完子再算父，父的净文本直接拿子算好的结果拼
+    // clean 同时干两件事：存净文本 + 记录“这个元素可见”（不在表里=不可见，其文字不计）
+    const clean = new Map();
+    for (let i = nodes.length - 1; i >= 0; i--) {
+        const e = nodes[i];
+        if (e.closest(EXCLUDE)) { clean.set(e, ''); continue; }   // 整棵子树置空
+        let s = '';
+        for (const c of e.childNodes) {
+            if (c.nodeType === 3) { s += c.textContent; }
+            else if (c.nodeType === 1 && clean.has(c)) { s += ' ' + clean.get(c); }
+        }
+        clean.set(e, norm(s));
+    }
+    return nodes.some(e => clean.get(e).includes(want));
+    """
+
+    def has_visible_text(self, text, timeout=3):
+        """
+        判断页面内容区有没有“看得见的文字”含指定文案（内容级证据，不是框架级证据）
+        这个判据经了四轮实测修正，每一轮都是被真跑出来的失败逼着改的：
+        【坑一 太宽→假绿】XPath contains 会命中整页祖先：<body> 的 innerText 天然含全部子孙文字，
+          什么文案都“找得到”，断言永远为真。
+        【坑二 太严→误报】只比叶子节点会漏：带图标按钮 <button><i></i>发布随堂测</button> 的文字
+          是 button 的匿名文本节点，button 有子元素不算叶子，文字又不在任何叶子上 → 真在页上却判没找到。
+        【坑三 门牌污染→锚点不独占】manage 页命中了“课堂质量报告/班级学情报告”，溯源发现它们挂在
+          span.llink__title < a.llink < div.hub，是页面底部跳转卡片的标题，天然等于目标页名。
+        【坑四 排除门牌后壳子往上爬】2026-11-22 实测：把 a.llink/[class*=hub] 排掉后判定完全没变（A/B 对照：
+          门牌元素 46 个、变化 0 项）。因为 innerText 天生包含子孙文字：hub 被排了，但它的祖先
+          <main>/<div id=app>/<body> 都没被排，它们的 innerText 照样含那段文字，于是壳子往上挪了一层。
+          → “找最深命中节点”这个层级方案在需要排除子树的场景里本质失效。
+        现在的做法换了维度：不再挑“哪个元素最深”，而是给每个元素算一份**净文本**——
+        拼接时遇到被排除的子树直接跳过，所以祖先的净文本里根本不会出现门牌文字。
+        好处：既不需要靠“最深”防祖先冒充（文本层面已经干净），又自然兼容坑二的匿名文本节点。
+        【坑五 排除范围写宽→把本页内容一起排掉】2026-11-22 实测：当时 EXCLUDE 写成 'a.llink, [class*=hub]'，
+        两个报告页修好了，但 manage 页命中数直接掉到 0/13（连自己的“布置作业”都找不到）——
+        因为【管理随堂测与作业】是个枢纽页，整个主体就装在 div.hub 里，[class*=hub] 把内容区一并排掉了。
+        → 有了净文本算法后只需排 a.llink 本身（门牌子树跳过，祖先拼出的净文本自动干净）。
+        教训：排除范围要“最小必要”，宁窄勿宽；而且必须拿 A/B 对照看“变化了哪几项”，
+        只看“最终绿不绿”永远发现不了自己把真内容误杀了。
+        为什么要等（timeout）：Vue 异步渲染，DOM 骨架先挂、文字后填，立刻查会误报“文案不存在”
+        适用：确认“到的确实是这一页”（本页独有的表头名/标题/按钮文字）
+        不适用：文案本身随数据变（如“第 5 讲”“全部 50”）——那类要断结构不断内容
+        """
+        try:
+            WebDriverWait(self.driver, timeout).until(
+                lambda d: d.execute_script(self._JS_HAS_VISIBLE_TEXT, text)
+            )
+            return True
+        except TimeoutException:
+            return False
+
     def click_element(self, locator):
         """
         点击元素（被遮挡时自动重试）
