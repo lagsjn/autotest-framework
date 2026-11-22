@@ -17,3 +17,8 @@ docs/extracted/
 docs/检索题复习笔记.md
 # 面试答辩稿：含被测系统内部细节（表名/错误码结构/鉴权策略），只存本地
 docs/项目面试答辩稿.md
+# 个人学习讲义：学习笔记与 SQL/CI 课程笔记，只存本地不公开
+docs/学习笔记.md
+docs/SQL第1讲-课程选课三表.md
+docs/SQL第2讲-实操交接单.md
+docs/CI知识体系与面试要点.md
